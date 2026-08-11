@@ -1,0 +1,37 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function userRecord() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid));
+    }
+
+    function authorized() {
+      return signedIn() && userRecord().data.active == true;
+    }
+
+    function editor() {
+      return authorized() && userRecord().data.role in ['admin', 'processor'];
+    }
+
+    function administrator() {
+      return authorized() && userRecord().data.role == 'admin';
+    }
+
+    match /issuances/{issuanceId} {
+      allow read: if authorized();
+      allow create, update: if editor();
+      allow delete: if administrator();
+    }
+
+    match /users/{userId} {
+      allow get: if signedIn() && userId == request.auth.uid;
+      allow list: if authorized();
+      allow create, update, delete: if administrator();
+    }
+  }
+}

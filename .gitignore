@@ -1,0 +1,11 @@
+node_modules/
+dist/
+.env.local
+.firebase/
+firebase-debug.log
+reference.xlsx
+reference.zip
+reference-unpacked/
+*.tsbuildinfo
+.npm-cache/
+private-data/
