@@ -39,6 +39,11 @@ export type Issuance = {
 
 export type IssuanceInput = Omit<Issuance, "id" | "created_at" | "updated_at" | "updated_by">;
 
+const newestFirst = (items: Issuance[]) => [...items].sort((left, right) =>
+  right.date_issued.localeCompare(left.date_issued)
+  || right.date_filed.localeCompare(left.date_filed)
+  || left.reference_number.localeCompare(right.reference_number, undefined, { numeric: true }),
+);
 const now = () => new Date().toISOString();
 const dateValue = (value: unknown) => {
   if (value && typeof value === "object" && "toDate" in value) {
@@ -92,9 +97,9 @@ const demoSeed: Issuance[] = [
     created_at: "2026-03-27T08:00:00.000Z", updated_at: "2026-03-27T08:00:00.000Z", updated_by: "Demo Administrator",
   },
 ];
-let demoRecords: Issuance[] = [...demoSeed];
+let demoRecords: Issuance[] = newestFirst(demoSeed);
 const demoListeners = new Set<(items: Issuance[]) => void>();
-const emitDemo = () => demoListeners.forEach((listener) => listener([...demoRecords]));
+const emitDemo = () => demoListeners.forEach((listener) => listener(newestFirst(demoRecords)));
 
 function store() {
   if (!db) throw new Error("Firebase has not been configured.");
@@ -103,17 +108,17 @@ function store() {
 
 export function subscribeIssuances(next: (items: Issuance[]) => void, fail: (error: Error) => void) {
   if (publicDataMode) {
-    next((publicSeed as Array<Record<string, unknown>>).map((item) => mapIssuance(String(item.id), item)));
+    next(newestFirst((publicSeed as Array<Record<string, unknown>>).map((item) => mapIssuance(String(item.id), item))));
     return () => undefined;
   }
   if (demoMode) {
     demoListeners.add(next);
-    next([...demoRecords]);
+    next(newestFirst(demoRecords));
     return () => { demoListeners.delete(next); };
   }
   return onSnapshot(
     collection(store(), "issuances"),
-    (snapshot) => next(snapshot.docs.map((item) => mapIssuance(item.id, item.data()))),
+    (snapshot) => next(newestFirst(snapshot.docs.map((item) => mapIssuance(item.id, item.data())))),
     fail,
   );
 }

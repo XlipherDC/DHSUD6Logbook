@@ -10,7 +10,7 @@ receipt, signature, and remarks fields removed.
 
 - Dashboard totals, monthly activity, issuance mix, and average processing time
 - URL-addressable directory and dedicated registry page for every issuance type
-- Searchable registry with type, year, and processor filters
+- Searchable newest-first registry with type, year, and processor filters
 - Public read-only registry with surname-only personal names
 - Optional authenticated "My issuances", editing, and assignment workflows
 - Email/password authentication and role-based access in Firestore mode
