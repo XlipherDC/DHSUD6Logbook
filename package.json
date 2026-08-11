@@ -10,7 +10,8 @@
     "preview": "vite preview",
     "extract": "python scripts/extract_spreadsheet.py reference.xlsx private-data/issuances.json",
     "sanitize": "node scripts/sanitize-public-data.mjs",
-    "import": "node scripts/import-firestore.mjs"
+    "import": "node scripts/import-firestore.mjs",
+    "firebase": "firebase"
   },
   "dependencies": {
     "firebase": "^12.2.1",
@@ -22,6 +23,7 @@
     "@types/react": "^18.3.18",
     "@types/react-dom": "^18.3.5",
     "@vitejs/plugin-react": "^4.3.4",
+    "firebase-tools": "^15.26.0",
     "typescript": "~5.6.2",
     "vite": "^6.0.5"
   }
