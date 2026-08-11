@@ -9,6 +9,7 @@ receipt, signature, and remarks fields removed.
 ## What is included
 
 - Dashboard totals, monthly activity, issuance mix, and average processing time
+- URL-addressable directory and dedicated registry page for every issuance type
 - Searchable registry with type, year, and processor filters
 - Public read-only registry with surname-only personal names
 - Optional authenticated "My issuances", editing, and assignment workflows
@@ -123,6 +124,9 @@ The workflow calculates the correct Pages base paths and publishes two builds:
   with `VITE_PUBLIC_DATA_MODE=false`.
 
 The public registry does not use Firebase and keeps editing controls disabled.
+Dedicated issuance pages use hash routes such as
+`/DHSUD6Logbook/#/types/development-permit`, so direct links and browser
+navigation work without server-side routing support from GitHub Pages.
 
 ## Data model
 

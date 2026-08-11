@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import {
   BarChart3, Building2, CalendarDays, CheckCircle2, ChevronRight, Clock3,
-  Download, FileCheck2, Files, LayoutDashboard, LogIn, MapPin, Menu, Pencil,
+  Download, FileCheck2, Files, Layers3, LayoutDashboard, LogIn, MapPin, Menu, Pencil,
   Plus, ReceiptText, Search, Trash2, UserRound, UsersRound, X,
 } from "lucide-react";
 import {
@@ -10,13 +10,27 @@ import {
 } from "./data";
 import { demoMode, publicDataMode } from "./firebase";
 
-type View = "dashboard" | "all" | "mine";
 const issuanceTypes = [
   "Development Permit", "Alteration Permit", "Certificate of Registration",
   "License to Sell — Subdivision", "License to Sell — Condominium",
   "Certificate of Non-Coverage", "License to Sell Amendment", "REMC",
   "Advertisement Approval", "Change of Name / Owner / Developer", "Mortgage Clearance",
 ];
+type View = "dashboard" | "all" | "mine" | "types" | "type";
+type Route = { view: View; type: string };
+const typeSlug = (value: string) => value.normalize("NFKD").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+const routeFromHash = (): Route => {
+  const hash = window.location.hash.replace(/^#\/?/, "");
+  if (hash.startsWith("types/")) {
+    const slug = hash.slice("types/".length);
+    const type = issuanceTypes.find((item) => typeSlug(item) === slug) || "";
+    return type ? { view: "type", type } : { view: "types", type: "" };
+  }
+  if (hash === "issuances") return { view: "all", type: "" };
+  if (hash === "mine") return { view: "mine", type: "" };
+  if (hash === "types") return { view: "types", type: "" };
+  return { view: "dashboard", type: "" };
+};
 const monthNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
 const emptyRecord = (): IssuanceInput => ({
@@ -42,7 +56,7 @@ export default function App({ identity }: { identity: Identity }) {
   const [profile, setProfile] = useState<Profile | null | undefined>(undefined);
   const [users, setUsers] = useState<Profile[]>([]);
   const [issuances, setIssuances] = useState<Issuance[]>([]);
-  const [view, setView] = useState<View>("dashboard");
+  const [route, setRoute] = useState<Route>(routeFromHash);
   const [query, setQuery] = useState("");
   const [typeFilter, setTypeFilter] = useState("All types");
   const [yearFilter, setYearFilter] = useState("All years");
@@ -52,7 +66,13 @@ export default function App({ identity }: { identity: Identity }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [navOpen, setNavOpen] = useState(false);
+  const { view, type: selectedType } = route;
 
+  useEffect(() => {
+    const syncRoute = () => setRoute(routeFromHash());
+    window.addEventListener("hashchange", syncRoute);
+    return () => window.removeEventListener("hashchange", syncRoute);
+  }, []);
   useEffect(() => subscribeProfile(identity, setProfile, (reason) => setError(reason.message)), [identity]);
   useEffect(() => {
     if (!profile?.active) return;
@@ -67,23 +87,32 @@ export default function App({ identity }: { identity: Identity }) {
   const years = useMemo(() => [...new Set(issuances.map((item) => item.date_issued.slice(0, 4)).filter((year) => /^\d{4}$/.test(year)))].sort().reverse(), [issuances]);
   const processors = useMemo(() => [...new Set(issuances.map((item) => item.processor).filter(Boolean))].sort(), [issuances]);
   const types = useMemo(() => [...new Set(issuances.map((item) => item.issuance_type).filter(Boolean))].sort(), [issuances]);
+  const knownTypes = useMemo(() => [...new Set([...issuanceTypes, ...types])], [types]);
   const mine = (item: Issuance) => item.assigned_to === profile?.id || Boolean(profile?.processor_code && item.processor.toLowerCase() === profile.processor_code.toLowerCase());
   const filtered = useMemo(() => issuances.filter((item) => {
     const haystack = [item.reference_number, item.project_name, item.location, item.applicant, item.developer, item.owner, item.processor, item.or_number, item.issuance_type].join(" ").toLowerCase();
     return (!query || haystack.includes(query.toLowerCase()))
-      && (typeFilter === "All types" || item.issuance_type === typeFilter)
+      && (view === "type" || typeFilter === "All types" || item.issuance_type === typeFilter)
       && (yearFilter === "All years" || item.date_issued.startsWith(yearFilter))
       && (processorFilter === "All processors" || item.processor === processorFilter)
-      && (view !== "mine" || mine(item));
-  }), [issuances, query, typeFilter, yearFilter, processorFilter, view, profile]);
+      && (view !== "mine" || mine(item))
+      && (view !== "type" || item.issuance_type === selectedType);
+  }), [issuances, query, typeFilter, yearFilter, processorFilter, view, selectedType, profile]);
 
   if (profile === undefined) return <div className="loading-page"><div className="loader" /><p>Loading your workspace…</p></div>;
   if (!profile?.active) return <div className="auth-page"><div className="auth-card"><div className="auth-mark"><UserRound /></div><h1>Access not enabled</h1><p>Your sign-in is valid, but no active staff profile is attached to <strong>{identity.email}</strong>. Ask an administrator to create or activate your user record.</p></div></div>;
 
   const canEdit = profile.role === "admin" || profile.role === "processor";
-  const pageTitle = view === "dashboard" ? "Dashboard" : view === "mine" ? "My issuances" : "All issuances";
-  const pageCopy = view === "dashboard" ? "Approved application monitoring at a glance" : view === "mine" ? "Records assigned to you or matching your processor code" : "Search and manage the complete issuance registry";
-  const navigate = (next: View) => { setView(next); setNavOpen(false); };
+  const pageTitle = view === "dashboard" ? "Dashboard" : view === "mine" ? "My issuances" : view === "types" ? "Issuance types" : view === "type" ? selectedType : "All issuances";
+  const pageCopy = view === "dashboard" ? "Approved application monitoring at a glance" : view === "mine" ? "Records assigned to you or matching your processor code" : view === "types" ? "Browse a dedicated register for every approval category" : view === "type" ? "Dedicated issuance-type register" : "Search and manage the complete issuance registry";
+  const changeHash = (hash: string) => {
+    if (window.location.hash === hash) setRoute(routeFromHash());
+    else window.location.hash = hash;
+    setNavOpen(false);
+  };
+  const navigate = (next: Exclude<View, "type">) => changeHash({ dashboard: "#/", all: "#/issuances", mine: "#/mine", types: "#/types" }[next]);
+  const openType = (type: string) => changeHash(`#/types/${typeSlug(type)}`);
+  const viewTotal = view === "mine" ? issuances.filter(mine).length : view === "type" ? issuances.filter((item) => item.issuance_type === selectedType).length : issuances.length;
 
   return <div className="app-shell">
     <aside className={navOpen ? "sidebar open" : "sidebar"}>
@@ -91,6 +120,7 @@ export default function App({ identity }: { identity: Identity }) {
       <nav aria-label="Main navigation">
         <button className={view === "dashboard" ? "active" : ""} onClick={() => navigate("dashboard")}><LayoutDashboard /> Dashboard</button>
         <button className={view === "all" ? "active" : ""} onClick={() => navigate("all")}><Files /> All issuances <em>{issuances.length}</em></button>
+        <button className={view === "types" || view === "type" ? "active" : ""} onClick={() => navigate("types")}><Layers3 /> Issuance types <em>{knownTypes.length}</em></button>
         <button className={view === "mine" ? "active" : ""} onClick={() => navigate("mine")}><UserRound /> My issuances <em>{issuances.filter(mine).length}</em></button>
       </nav>
       <div className="sidebar-foot"><div className="avatar">{initials(profile.name)}</div><div><strong>{profile.name}</strong><span>{profile.role} {profile.processor_code && `· ${profile.processor_code}`}</span></div></div>
@@ -109,8 +139,10 @@ export default function App({ identity }: { identity: Identity }) {
       </header>
       {error && <div className="alert"><span>{error}</span><button onClick={() => setError("")}><X size={16} /></button></div>}
       {view === "dashboard"
-        ? <Dashboard issuances={issuances} mineCount={issuances.filter(mine).length} open={(id) => setSelectedId(id)} />
-        : <Registry title={view === "mine" ? "My issuance register" : "Issuance register"} items={filtered} total={view === "mine" ? issuances.filter(mine).length : issuances.length} loading={loading} query={query} setQuery={setQuery} types={types} typeFilter={typeFilter} setTypeFilter={setTypeFilter} years={years} yearFilter={yearFilter} setYearFilter={setYearFilter} processors={processors} processorFilter={processorFilter} setProcessorFilter={setProcessorFilter} open={(id) => setSelectedId(id)} />}
+        ? <Dashboard issuances={issuances} mineCount={issuances.filter(mine).length} open={(id) => setSelectedId(id)} openType={openType} />
+        : view === "types"
+          ? <TypeDirectory types={knownTypes} issuances={issuances} open={openType} />
+          : <>{view === "type" && selectedType && <TypePageHeader type={selectedType} issuances={issuances.filter((item) => item.issuance_type === selectedType)} back={() => navigate("types")} />}<Registry title={view === "mine" ? "My issuance register" : view === "type" ? `${selectedType} register` : "Issuance register"} items={filtered} total={viewTotal} loading={loading} query={query} setQuery={setQuery} types={types} typeFilter={typeFilter} setTypeFilter={setTypeFilter} years={years} yearFilter={yearFilter} setYearFilter={setYearFilter} processors={processors} processorFilter={processorFilter} setProcessorFilter={setProcessorFilter} open={(id) => setSelectedId(id)} hideTypeFilter={view === "type"} /></>}
     </main>
     {selected && <DetailDrawer item={selected} profile={profile} canEdit={canEdit} close={() => setSelectedId(null)} edit={() => setEditing(selected)} remove={async () => {
       if (profile.role !== "admin" || !window.confirm(`Delete ${selected.reference_number}? This cannot be undone.`)) return;
@@ -120,7 +152,7 @@ export default function App({ identity }: { identity: Identity }) {
   </div>;
 }
 
-function Dashboard({ issuances, mineCount, open }: { issuances: Issuance[]; mineCount: number; open: (id: string) => void }) {
+function Dashboard({ issuances, mineCount, open, openType }: { issuances: Issuance[]; mineCount: number; open: (id: string) => void; openType: (type: string) => void }) {
   const today = new Date();
   const currentYear = String(today.getFullYear());
   const currentMonth = `${currentYear}-${String(today.getMonth() + 1).padStart(2, "0")}`;
@@ -144,13 +176,40 @@ function Dashboard({ issuances, mineCount, open }: { issuances: Issuance[]; mine
         <div className="bar-chart" aria-label={`Monthly issuances for ${latestYear}`}>{monthly.map((item) => <div className="bar-column" key={item.label}><span>{item.count || ""}</span><div style={{ height: `${Math.max(item.count ? 8 : 2, item.count / maxMonth * 100)}%` }} /><small>{item.label}</small></div>)}</div>
       </article>
       <article className="panel type-panel"><PanelHead title="Issuance mix" copy="Records by approval category" />
-        <div className="type-list">{byType.slice(0, 6).map(([type, count], index) => <div className="type-row" key={type}><div><span className={`type-dot dot-${index}`} /> <strong>{type}</strong><b>{count}</b></div><div className="type-track"><span className={`fill-${index}`} style={{ width: `${count / maxType * 100}%` }} /></div></div>)}</div>
+        <div className="type-list">{byType.slice(0, 6).map(([type, count], index) => <button className="type-row" key={type} onClick={() => openType(type)}><div><span className={`type-dot dot-${index}`} /> <strong>{type}</strong><b>{count}</b></div><div className="type-track"><span className={`fill-${index}`} style={{ width: `${count / maxType * 100}%` }} /></div></button>)}</div>
       </article>
       <article className="panel recent-panel"><PanelHead title="Recently issued" copy="Latest approved application records" />
         <div className="recent-list">{recent.map((item) => <button key={item.id} onClick={() => open(item.id)}><span className="doc-icon"><FileCheck2 /></span><span className="recent-main"><strong>{item.project_name}</strong><small>{item.reference_number} · {item.issuance_type}</small></span><span className="recent-date">{formatDate(item.date_issued)}</span><ChevronRight /></button>)}</div>
       </article>
     </section>
   </>;
+}
+
+function TypeDirectory({ types, issuances, open }: { types: string[]; issuances: Issuance[]; open: (type: string) => void }) {
+  return <section className="type-directory">
+    <div className="type-grid">{types.map((type, index) => {
+      const records = issuances.filter((item) => item.issuance_type === type);
+      const latest = records.map((item) => item.date_issued).filter(Boolean).sort().at(-1);
+      return <button className="type-card" key={type} onClick={() => open(type)}>
+        <span className={`type-card-icon tone-${index % 5}`}><Layers3 /></span>
+        <span className="eyebrow">Issuance type</span>
+        <h2>{type}</h2>
+        <p>{records.length} {records.length === 1 ? "record" : "records"}{latest ? ` · Latest ${formatDate(latest)}` : " · No issued records yet"}</p>
+        <span className="type-card-link">Open dedicated page <ChevronRight /></span>
+      </button>;
+    })}</div>
+  </section>;
+}
+
+function TypePageHeader({ type, issuances, back }: { type: string; issuances: Issuance[]; back: () => void }) {
+  const years = issuances.map((item) => item.date_issued.slice(0, 4)).filter((year) => /^\d{4}$/.test(year));
+  const latestYear = years.sort().at(-1) || "—";
+  const processors = new Set(issuances.map((item) => item.processor).filter(Boolean)).size;
+  return <section className="type-page-header">
+    <button className="type-back" onClick={back}>Issuance types <ChevronRight /></button>
+    <div className="type-page-copy"><span className="type-page-icon"><Layers3 /></span><div><span className="eyebrow">Dedicated issuance page</span><h2>{type}</h2><p>Search, review, and export approved records in this category.</p></div></div>
+    <div className="type-page-stats"><span><strong>{issuances.length}</strong>Total records</span><span><strong>{latestYear}</strong>Latest year</span><span><strong>{processors}</strong>Processors</span></div>
+  </section>;
 }
 
 function Stat({ icon, tone, label, value, note }: { icon: React.ReactNode; tone: string; label: string; value: string | number; note: string }) {
@@ -163,7 +222,7 @@ function PanelHead({ title, copy }: { title: string; copy: string }) {
 type RegistryProps = {
   title: string; items: Issuance[]; total: number; loading: boolean; query: string; setQuery: (value: string) => void;
   types: string[]; typeFilter: string; setTypeFilter: (value: string) => void; years: string[]; yearFilter: string; setYearFilter: (value: string) => void;
-  processors: string[]; processorFilter: string; setProcessorFilter: (value: string) => void; open: (id: string) => void;
+  processors: string[]; processorFilter: string; setProcessorFilter: (value: string) => void; open: (id: string) => void; hideTypeFilter?: boolean;
 };
 function Registry(props: RegistryProps) {
   const exportCsv = () => {
@@ -180,7 +239,7 @@ function Registry(props: RegistryProps) {
     <div className="registry-head"><div><h2>{props.title}</h2><p>Showing {props.items.length} of {props.total} records</p></div><button className="secondary" onClick={exportCsv}><Download size={16} /> Export CSV</button></div>
     <div className="filters">
       <label className="search-box"><Search size={17} /><input aria-label="Search issuances" placeholder="Search project, reference, location…" value={props.query} onChange={(event) => props.setQuery(event.target.value)} />{props.query && <button onClick={() => props.setQuery("")}><X size={14} /></button>}</label>
-      <select aria-label="Filter by type" value={props.typeFilter} onChange={(event) => props.setTypeFilter(event.target.value)}><option>All types</option>{props.types.map((type) => <option key={type}>{type}</option>)}</select>
+      {!props.hideTypeFilter && <select aria-label="Filter by type" value={props.typeFilter} onChange={(event) => props.setTypeFilter(event.target.value)}><option>All types</option>{props.types.map((type) => <option key={type}>{type}</option>)}</select>}
       <select aria-label="Filter by year" value={props.yearFilter} onChange={(event) => props.setYearFilter(event.target.value)}><option>All years</option>{props.years.map((year) => <option key={year}>{year}</option>)}</select>
       <select aria-label="Filter by processor" value={props.processorFilter} onChange={(event) => props.setProcessorFilter(event.target.value)}><option>All processors</option>{props.processors.map((processor) => <option key={processor}>{processor}</option>)}</select>
     </div>
