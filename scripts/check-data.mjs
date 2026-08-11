@@ -16,6 +16,9 @@ for (const [index, record] of records.entries()) {
   if (String(record.processor || "").toUpperCase() === "IQ") {
     problems.push(`${record.id} contains the deprecated IQ processor code`);
   }
+  if (record.issuance_type === "REMC" && !/^REMC-\d{4}-\d+[A-Z]?$/.test(record.reference_number)) {
+    problems.push(`${record.id} has an invalid REMC Decision Number: ${record.reference_number}`);
+  }
   for (const [key, value] of Object.entries(record.details || {})) {
     if (key.replace(/[^a-z0-9]/gi, "").toLowerCase() === "processor" && String(value).toUpperCase() === "IQ") {
       problems.push(`${record.id} contains the deprecated IQ processor code in details`);

@@ -142,5 +142,9 @@ users/{firebaseAuthUid}
   active, role, name, email, processor_code
 ```
 
+REMC Decision Numbers are normalized and validated as `REMC-YYYY-NUMBER`.
+Existing decisions may use one uppercase letter suffix, such as
+`REMC-2026-0010A`.
+
 The original workbook and full normalized dataset are ignored by Git. Only the
 surname-only, redacted `issuances.public.json` snapshot is published.
