@@ -195,7 +195,7 @@ function TypeDirectory({ types, issuances, open }: { types: string[]; issuances:
         <span className="eyebrow">Issuance type</span>
         <h2>{type}</h2>
         <p>{records.length} {records.length === 1 ? "record" : "records"}{latest ? ` · Latest ${formatDate(latest)}` : " · No issued records yet"}</p>
-        <span className="type-card-link">Open dedicated page <ChevronRight /></span>
+        <span className="type-card-link">Open Page <ChevronRight /></span>
       </button>;
     })}</div>
   </section>;
