@@ -52,9 +52,8 @@ staff workflow separately:
 6. Deploy the checked-in database rules:
 
 ```powershell
-npx firebase-tools login
-npx firebase-tools use --add
-npx firebase-tools deploy --only firestore
+npm run firebase -- login
+npm run firebase -- deploy --only firestore
 ```
 
 Create an Authentication user and a corresponding `users/{UID}` Firestore
@@ -112,11 +111,18 @@ are never written to files.
 
 1. Push this folder to a public GitHub repository with `main` as the default branch.
 2. In **Settings → Pages**, choose **GitHub Actions** as the source.
-3. Push to `main` or manually run **Deploy dashboard to GitHub Pages**.
+3. Add the six `VITE_FIREBASE_*` values from `.env.local` as repository
+   variables under **Settings → Secrets and variables → Actions → Variables**.
+4. Push to `main` or manually run **Deploy dashboard to GitHub Pages**.
 
-The workflow calculates the correct Pages base path and builds with
-`VITE_PUBLIC_DATA_MODE=true`. Firebase is not needed for this read-only public
-registry, and editing controls are disabled.
+The workflow calculates the correct Pages base paths and publishes two builds:
+
+- `/DHSUD6Logbook/` is the surname-only public registry built with
+  `VITE_PUBLIC_DATA_MODE=true`.
+- `/DHSUD6Logbook/staff/` is the authenticated Firestore staff portal built
+  with `VITE_PUBLIC_DATA_MODE=false`.
+
+The public registry does not use Firebase and keeps editing controls disabled.
 
 ## Data model
 

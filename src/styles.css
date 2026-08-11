@@ -58,6 +58,7 @@ main { margin-left: 254px; width: calc(100% - 254px); max-width: 1540px; min-hei
 .primary:disabled { cursor: wait; opacity: .65; }
 .secondary { color: #425d73; border: 1px solid #d5dfe6; background: #fff; }
 .secondary:hover { background: #f7fafb; }
+.portal-link { text-decoration: none; }
 .danger-button { color: #a9443c; border: 1px solid #eed3cf; background: #fff; }
 .alert { margin: -8px 0 18px; padding: 11px 13px; display: flex; align-items: center; border: 1px solid #edcac5; border-radius: 8px; color: #973d35; background: #fff0ee; font-size: 12px; }
 .alert button { margin-left: auto; border: 0; color: inherit; background: transparent; }

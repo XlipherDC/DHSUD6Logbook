@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import {
   BarChart3, Building2, CalendarDays, CheckCircle2, ChevronRight, Clock3,
-  Download, FileCheck2, Files, LayoutDashboard, MapPin, Menu, Pencil,
+  Download, FileCheck2, Files, LayoutDashboard, LogIn, MapPin, Menu, Pencil,
   Plus, ReceiptText, Search, Trash2, UserRound, UsersRound, X,
 } from "lucide-react";
 import {
@@ -102,6 +102,7 @@ export default function App({ identity }: { identity: Identity }) {
         <div className="title-row"><button className="menu-button" onClick={() => setNavOpen(true)}><Menu /></button><div><span className="eyebrow">Approved applications registry</span><h1>{pageTitle}</h1><p>{pageCopy}</p></div></div>
         <div className="header-actions">
           {publicDataMode && <span className="demo-badge">Public registry</span>}
+          {publicDataMode && <a className="secondary portal-link" href={`${import.meta.env.BASE_URL}staff/`}><LogIn size={16} /> Staff sign in</a>}
           {demoMode && <span className="demo-badge">Demo data</span>}
           {canEdit && <button className="primary" onClick={() => setEditing("new")}><Plus size={17} /> New issuance</button>}
         </div>
