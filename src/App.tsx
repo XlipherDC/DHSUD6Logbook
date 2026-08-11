@@ -40,6 +40,8 @@ const emptyRecord = (): IssuanceInput => ({
   processor: "", or_number: "", remarks: "", assigned_to: "", details: {},
 });
 const isIsoDate = (value: string) => /^\d{4}-\d{2}-\d{2}$/.test(value);
+const remcDecisionNumberPattern = /^REMC-\d{4}-\d+[A-Z]?$/;
+const normalizeRemcDecisionNumber = (value: string) => value.trim().toUpperCase().replace(/\s*-\s*/g, "-");
 const formatDate = (value: string) => {
   if (!value) return "Not recorded";
   if (!isIsoDate(value)) return value;
@@ -278,17 +280,25 @@ function IssuanceForm({ current, users, profile, close, saved, fail }: { current
   } : emptyRecord());
   const [saving, setSaving] = useState(false);
   const set = (field: keyof IssuanceInput, value: string) => setForm((previous) => ({ ...previous, [field]: value }));
+  const isRemc = form.issuance_type === "REMC";
   const submit = async (event: React.FormEvent) => {
-    event.preventDefault(); setSaving(true);
+    event.preventDefault();
+    const referenceNumber = isRemc ? normalizeRemcDecisionNumber(form.reference_number) : form.reference_number.trim();
+    if (isRemc && !remcDecisionNumberPattern.test(referenceNumber)) {
+      fail("REMC Decision Number must use REMC-YYYY-NUMBER, for example REMC-2026-118.");
+      return;
+    }
+    const payload = { ...form, reference_number: referenceNumber };
+    setSaving(true);
     try {
-      if (current) { await updateIssuance(current.id, form, profile); saved(current.id); }
-      else { saved(await createIssuance(form, profile)); }
+      if (current) { await updateIssuance(current.id, payload, profile); saved(current.id); }
+      else { saved(await createIssuance(payload, profile)); }
     } catch (reason) { fail(reason instanceof Error ? reason.message : "Could not save the issuance."); setSaving(false); }
   };
   return <div className="modal-layer"><button className="modal-scrim" aria-label="Close form" onClick={close} /><div className="modal">
     <div className="modal-head"><div><span className="eyebrow">{current ? "Update registry entry" : "Add to registry"}</span><h2>{current ? "Edit issuance" : "New issuance"}</h2></div><button className="icon-button" onClick={close}><X /></button></div>
     <form onSubmit={submit}><div className="form-grid">
-      <label>Reference / decision no.<input required value={form.reference_number} onChange={(event) => set("reference_number", event.target.value)} /></label>
+      <label>{isRemc ? "Decision number" : "Reference / decision no."}<input required value={form.reference_number} onChange={(event) => set("reference_number", event.target.value)} onBlur={() => isRemc && set("reference_number", normalizeRemcDecisionNumber(form.reference_number))} pattern={isRemc ? "REMC-[0-9]{4}-[0-9]+[A-Z]?" : undefined} title={isRemc ? "Use REMC-YYYY-NUMBER, with an optional letter suffix." : undefined} placeholder={isRemc ? "REMC-2026-118" : undefined} />{isRemc && <small className="field-help">Format: REMC-YYYY-NUMBER. One letter suffix is allowed.</small>}</label>
       <label>Issuance type<select required value={form.issuance_type} onChange={(event) => set("issuance_type", event.target.value)}>{issuanceTypes.map((type) => <option key={type}>{type}</option>)}</select></label>
       <label>Date filed<input type="date" value={form.date_filed} onChange={(event) => set("date_filed", event.target.value)} /></label>
       <label>Date issued<input type="date" required value={form.date_issued} onChange={(event) => set("date_issued", event.target.value)} /></label>

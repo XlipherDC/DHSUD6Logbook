@@ -22,9 +22,15 @@ service cloud.firestore {
       return authorized() && userRecord().data.role == 'admin';
     }
 
+    function validDecisionNumber() {
+      return request.resource.data.issuance_type != 'REMC'
+        || (request.resource.data.reference_number is string
+          && request.resource.data.reference_number.matches('^REMC-[0-9]{4}-[0-9]+[A-Z]?$'));
+    }
+
     match /issuances/{issuanceId} {
       allow read: if authorized();
-      allow create, update: if editor();
+      allow create, update: if editor() && validDecisionNumber();
       allow delete: if administrator();
     }
 
