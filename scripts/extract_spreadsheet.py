@@ -66,6 +66,11 @@ def clean(value: str) -> str:
     return re.sub(r"\s+", " ", value or "").strip()
 
 
+def normalize_processor(value: str) -> str:
+    processor = clean(value)
+    return "IRQ" if processor.upper() == "IQ" else processor
+
+
 def pick(row: dict[str, str], *names: str) -> str:
     lowered = {re.sub(r"[^a-z0-9]", "", key.lower()): value for key, value in row.items()}
     for name in names:
@@ -150,7 +155,11 @@ def normalize(path: Path) -> list[dict[str, object]]:
         owner = pick(row, "Owner")
         applicant = pick(row, "Applicant", "AuthRep") or developer or owner
         remarks = pick(row, "Remarks/Changes", "Remarks", "NatureOfAlteration")
+        processor = normalize_processor(pick(row, "Processor"))
         details = {key: value for key, value in row.items() if key not in {""} and value}
+        for key in details:
+            if re.sub(r"[^a-z0-9]", "", key.lower()) == "processor":
+                details[key] = processor
         output.append({
             "id": f"{slug(sheet)}-{slug(reference)}-{source_row}",
             "reference_number": reference,
@@ -164,7 +173,7 @@ def normalize(path: Path) -> list[dict[str, object]]:
             "applicant": applicant,
             "developer": developer,
             "owner": owner,
-            "processor": pick(row, "Processor"),
+            "processor": processor,
             "or_number": pick(row, "OR_Number", "OR Number"),
             "remarks": remarks,
             "assigned_to": "",

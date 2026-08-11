@@ -13,6 +13,14 @@ for (const [index, record] of records.entries()) {
   if (ids.has(record.id)) problems.push(`Duplicate ID: ${record.id}`);
   ids.add(record.id);
   if (containsHiddenPublicFields(record)) problems.push(`${record.id} contains a hidden public field`);
+  if (String(record.processor || "").toUpperCase() === "IQ") {
+    problems.push(`${record.id} contains the deprecated IQ processor code`);
+  }
+  for (const [key, value] of Object.entries(record.details || {})) {
+    if (key.replace(/[^a-z0-9]/gi, "").toLowerCase() === "processor" && String(value).toUpperCase() === "IQ") {
+      problems.push(`${record.id} contains the deprecated IQ processor code in details`);
+    }
+  }
   for (const field of ["applicant", "owner", "developer"]) {
     const value = String(record[field] || "");
     if (value && !isOrganization(value) && /\s/.test(value)) {
