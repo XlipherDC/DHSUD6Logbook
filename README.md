@@ -13,6 +13,7 @@ receipt, signature, and remarks fields removed.
 - Searchable newest-first registry with type, year, and processor filters
 - Public read-only registry with surname-only personal names
 - Optional authenticated "My issuances", editing, and assignment workflows
+- Case-insensitive duplicate Reference Number prevention for new and changed records
 - Email/password authentication and role-based access in Firestore mode
 - Repeatable private-to-public sanitization and Firestore migration scripts
 - GitHub Pages deployment workflow
@@ -145,6 +146,12 @@ users/{firebaseAuthUid}
 REMC Decision Numbers are normalized and validated as `REMC-YYYY-NUMBER`.
 Existing decisions may use one uppercase letter suffix, such as
 `REMC-2026-0010A`.
+
+New and changed Reference Numbers are reserved transactionally in
+`issuance_reference_numbers`, preventing two staff members from saving the
+same number concurrently. Three duplicate groups inherited from the source
+workbook remain grandfathered until their correct replacement numbers are
+confirmed: `REMC-2025-152`, `REMC-2025-158`, and `2026/06-15`.
 
 The original workbook and full normalized dataset are ignored by Git. Only the
 surname-only, redacted `issuances.public.json` snapshot is published.

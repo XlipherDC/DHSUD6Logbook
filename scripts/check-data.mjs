@@ -5,6 +5,8 @@ const records = JSON.parse(await readFile(new URL("../src/seed/issuances.public.
 const required = ["id", "reference_number", "issuance_type", "project_name", "source_sheet"];
 const problems = [];
 const ids = new Set();
+const references = new Map();
+const legacyDuplicateReferences = new Set(["REMC-2025-152", "REMC-2025-158", "2026/06-15"]);
 
 for (const [index, record] of records.entries()) {
   for (const field of required) {
@@ -12,6 +14,8 @@ for (const [index, record] of records.entries()) {
   }
   if (ids.has(record.id)) problems.push(`Duplicate ID: ${record.id}`);
   ids.add(record.id);
+  const canonicalReference = String(record.reference_number).trim().replace(/\s+/g, " ").toUpperCase();
+  references.set(canonicalReference, (references.get(canonicalReference) || 0) + 1);
   if (containsHiddenPublicFields(record)) problems.push(`${record.id} contains a hidden public field`);
   if (String(record.processor || "").toUpperCase() === "IQ") {
     problems.push(`${record.id} contains the deprecated IQ processor code`);
@@ -37,10 +41,16 @@ for (const [index, record] of records.entries()) {
   }
 }
 
+for (const [reference, count] of references) {
+  if (count > 1 && (!legacyDuplicateReferences.has(reference) || count > 2)) {
+    problems.push(`Duplicate Reference Number: ${reference} (${count} records)`);
+  }
+}
+
 if (records.length !== 183) problems.push(`Expected 183 public rows, found ${records.length}`);
 if (problems.length) {
   console.error(problems.join("\n"));
   process.exitCode = 1;
 } else {
-  console.log(`Validated ${records.length} public records with ${ids.size} unique IDs and required redactions.`);
+  console.log(`Validated ${records.length} public records with ${ids.size} unique IDs, no new duplicate references, and required redactions.`);
 }

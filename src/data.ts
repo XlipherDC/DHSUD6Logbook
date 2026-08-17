@@ -1,5 +1,5 @@
 import {
-  addDoc, collection, deleteDoc, doc, onSnapshot, serverTimestamp, updateDoc,
+  collection, doc, onSnapshot, runTransaction, serverTimestamp,
 } from "firebase/firestore";
 import { db, demoMode, publicDataMode } from "./firebase";
 import publicSeed from "./seed/issuances.public.json";
@@ -39,6 +39,9 @@ export type Issuance = {
 
 export type IssuanceInput = Omit<Issuance, "id" | "created_at" | "updated_at" | "updated_by">;
 
+export const canonicalReferenceNumber = (value: string) => value.trim().replace(/\s+/g, " ").toUpperCase();
+const referenceKey = (value: string) => encodeURIComponent(canonicalReferenceNumber(value)).replace(/\./g, "%2E");
+const duplicateReferenceError = (value: string) => new Error(`Reference Number "${value}" already exists. Use a unique Reference Number.`);
 const newestFirst = (items: Issuance[]) => [...items].sort((left, right) =>
   right.date_issued.localeCompare(left.date_issued)
   || right.date_filed.localeCompare(left.date_filed)
@@ -167,27 +170,81 @@ export function subscribeUsers(next: (profiles: Profile[]) => void, fail: (error
 
 export async function createIssuance(payload: IssuanceInput, actor: Profile) {
   if (demoMode) {
+    if (demoRecords.some((item) => canonicalReferenceNumber(item.reference_number) === canonicalReferenceNumber(payload.reference_number))) {
+      throw duplicateReferenceError(payload.reference_number);
+    }
     const created: Issuance = { ...payload, id: `demo-${Date.now()}`, created_at: now(), updated_at: now(), updated_by: actor.name };
     demoRecords = [created, ...demoRecords];
     emitDemo();
     return created.id;
   }
-  const reference = await addDoc(collection(store(), "issuances"), {
-    ...payload,
-    created_at: serverTimestamp(),
-    updated_at: serverTimestamp(),
-    updated_by: actor.name,
+  const database = store();
+  const issuanceReference = doc(collection(database, "issuances"));
+  const key = referenceKey(payload.reference_number);
+  const reservationReference = doc(database, "issuance_reference_numbers", key);
+  await runTransaction(database, async (transaction) => {
+    const reservation = await transaction.get(reservationReference);
+    if (reservation.exists()) throw duplicateReferenceError(payload.reference_number);
+    transaction.set(issuanceReference, {
+      ...payload,
+      reference_key: key,
+      created_at: serverTimestamp(),
+      updated_at: serverTimestamp(),
+      updated_by: actor.name,
+    });
+    transaction.set(reservationReference, {
+      issuance_id: issuanceReference.id,
+      reference_number: payload.reference_number,
+      updated_at: serverTimestamp(),
+    });
   });
-  return reference.id;
+  return issuanceReference.id;
 }
 
 export async function updateIssuance(id: string, payload: IssuanceInput, actor: Profile) {
   if (demoMode) {
+    if (demoRecords.some((item) => item.id !== id && canonicalReferenceNumber(item.reference_number) === canonicalReferenceNumber(payload.reference_number))) {
+      throw duplicateReferenceError(payload.reference_number);
+    }
     demoRecords = demoRecords.map((item) => item.id === id ? { ...item, ...payload, updated_at: now(), updated_by: actor.name } : item);
     emitDemo();
     return;
   }
-  await updateDoc(doc(store(), "issuances", id), { ...payload, updated_at: serverTimestamp(), updated_by: actor.name });
+  const database = store();
+  const issuanceReference = doc(database, "issuances", id);
+  await runTransaction(database, async (transaction) => {
+    const existing = await transaction.get(issuanceReference);
+    if (!existing.exists()) throw new Error("This issuance no longer exists.");
+
+    const previousNumber = textValue(existing.data().reference_number);
+    const previousKey = textValue(existing.data().reference_key);
+    if (!previousKey && previousNumber === payload.reference_number) {
+      transaction.update(issuanceReference, { ...payload, updated_at: serverTimestamp(), updated_by: actor.name });
+      return;
+    }
+
+    const nextKey = referenceKey(payload.reference_number);
+    const nextReservationReference = doc(database, "issuance_reference_numbers", nextKey);
+    const nextReservation = await transaction.get(nextReservationReference);
+    if (nextReservation.exists() && textValue(nextReservation.data().issuance_id) !== id) {
+      throw duplicateReferenceError(payload.reference_number);
+    }
+
+    transaction.update(issuanceReference, {
+      ...payload,
+      reference_key: nextKey,
+      updated_at: serverTimestamp(),
+      updated_by: actor.name,
+    });
+    transaction.set(nextReservationReference, {
+      issuance_id: id,
+      reference_number: payload.reference_number,
+      updated_at: serverTimestamp(),
+    });
+    if (previousKey && previousKey !== nextKey) {
+      transaction.delete(doc(database, "issuance_reference_numbers", previousKey));
+    }
+  });
 }
 
 export async function deleteIssuance(id: string) {
@@ -196,5 +253,17 @@ export async function deleteIssuance(id: string) {
     emitDemo();
     return;
   }
-  await deleteDoc(doc(store(), "issuances", id));
+  const database = store();
+  const issuanceReference = doc(database, "issuances", id);
+  await runTransaction(database, async (transaction) => {
+    const existing = await transaction.get(issuanceReference);
+    if (!existing.exists()) return;
+    const key = textValue(existing.data().reference_key);
+    const reservationReference = key ? doc(database, "issuance_reference_numbers", key) : null;
+    const reservation = reservationReference ? await transaction.get(reservationReference) : null;
+    transaction.delete(issuanceReference);
+    if (reservationReference && reservation?.exists() && textValue(reservation.data().issuance_id) === id) {
+      transaction.delete(reservationReference);
+    }
+  });
 }

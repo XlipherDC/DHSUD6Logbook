@@ -5,7 +5,7 @@ import {
   Plus, ReceiptText, Search, Trash2, UserRound, UsersRound, X,
 } from "lucide-react";
 import {
-  createIssuance, deleteIssuance, Identity, Issuance, IssuanceInput, Profile,
+  canonicalReferenceNumber, createIssuance, deleteIssuance, Identity, Issuance, IssuanceInput, Profile,
   subscribeIssuances, subscribeProfile, subscribeUsers, updateIssuance,
 } from "./data";
 import { demoMode, publicDataMode } from "./firebase";
@@ -150,7 +150,7 @@ export default function App({ identity }: { identity: Identity }) {
       if (profile.role !== "admin" || !window.confirm(`Delete ${selected.reference_number}? This cannot be undone.`)) return;
       try { await deleteIssuance(selected.id); setSelectedId(null); } catch (reason) { setError(reason instanceof Error ? reason.message : "Could not delete the record."); }
     }} />}
-    {editing && <IssuanceForm current={editing === "new" ? null : editing} users={users} profile={profile} close={() => setEditing(null)} saved={(id) => { setEditing(null); setSelectedId(id); }} fail={setError} />}
+    {editing && <IssuanceForm current={editing === "new" ? null : editing} issuances={issuances} users={users} profile={profile} close={() => setEditing(null)} saved={(id) => { setEditing(null); setSelectedId(id); }} fail={setError} />}
   </div>;
 }
 
@@ -270,7 +270,7 @@ function Info({ icon, label, value }: { icon: React.ReactNode; label: string; va
   return <div className="info-row"><span>{icon}</span><div><small>{label}</small><strong>{value || "Not recorded"}</strong></div></div>;
 }
 
-function IssuanceForm({ current, users, profile, close, saved, fail }: { current: Issuance | null; users: Profile[]; profile: Profile; close: () => void; saved: (id: string) => void; fail: (message: string) => void }) {
+function IssuanceForm({ current, issuances, users, profile, close, saved, fail }: { current: Issuance | null; issuances: Issuance[]; users: Profile[]; profile: Profile; close: () => void; saved: (id: string) => void; fail: (message: string) => void }) {
   const [form, setForm] = useState<IssuanceInput>(current ? {
     reference_number: current.reference_number, issuance_type: current.issuance_type, source_sheet: current.source_sheet,
     source_row: current.source_row, date_filed: isIsoDate(current.date_filed) ? current.date_filed : "", date_issued: isIsoDate(current.date_issued) ? current.date_issued : "",
@@ -286,6 +286,12 @@ function IssuanceForm({ current, users, profile, close, saved, fail }: { current
     const referenceNumber = isRemc ? normalizeRemcDecisionNumber(form.reference_number) : form.reference_number.trim();
     if (isRemc && !remcDecisionNumberPattern.test(referenceNumber)) {
       fail("REMC Decision Number must use REMC-YYYY-NUMBER, for example REMC-2026-118.");
+      return;
+    }
+    const duplicate = issuances.find((item) => item.id !== current?.id
+      && canonicalReferenceNumber(item.reference_number) === canonicalReferenceNumber(referenceNumber));
+    if (duplicate && (!current || referenceNumber !== current.reference_number)) {
+      fail(`Reference Number "${referenceNumber}" already exists. Use a unique Reference Number.`);
       return;
     }
     const payload = { ...form, reference_number: referenceNumber };

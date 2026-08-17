@@ -28,10 +28,43 @@ service cloud.firestore {
           && request.resource.data.reference_number.matches('^REMC-[0-9]{4}-[0-9]+[A-Z]?$'));
     }
 
+    function referenceReserved(issuanceId) {
+      return request.resource.data.reference_key is string
+        && existsAfter(/databases/$(database)/documents/issuance_reference_numbers/$(request.resource.data.reference_key))
+        && getAfter(/databases/$(database)/documents/issuance_reference_numbers/$(request.resource.data.reference_key)).data.issuance_id == issuanceId;
+    }
+
+    function legacyReferenceUnchanged() {
+      return !('reference_key' in resource.data)
+        && !('reference_key' in request.resource.data)
+        && request.resource.data.reference_number == resource.data.reference_number;
+    }
+
     match /issuances/{issuanceId} {
       allow read: if authorized();
-      allow create, update: if editor() && validDecisionNumber();
-      allow delete: if administrator();
+      allow create: if editor() && validDecisionNumber() && referenceReserved(issuanceId);
+      allow update: if editor() && validDecisionNumber()
+        && (legacyReferenceUnchanged() || referenceReserved(issuanceId));
+      allow delete: if administrator()
+        && (!('reference_key' in resource.data)
+          || !existsAfter(/databases/$(database)/documents/issuance_reference_numbers/$(resource.data.reference_key)));
+    }
+
+    match /issuance_reference_numbers/{referenceKey} {
+      allow read: if authorized();
+      allow create: if editor()
+        && request.resource.data.issuance_id is string
+        && existsAfter(/databases/$(database)/documents/issuances/$(request.resource.data.issuance_id))
+        && getAfter(/databases/$(database)/documents/issuances/$(request.resource.data.issuance_id)).data.reference_key == referenceKey;
+      allow update: if editor()
+        && request.resource.data.issuance_id == resource.data.issuance_id
+        && existsAfter(/databases/$(database)/documents/issuances/$(request.resource.data.issuance_id))
+        && getAfter(/databases/$(database)/documents/issuances/$(request.resource.data.issuance_id)).data.reference_key == referenceKey;
+      allow delete: if editor() && resource.data.issuance_id is string
+        && ((administrator()
+            && !existsAfter(/databases/$(database)/documents/issuances/$(resource.data.issuance_id)))
+          || (existsAfter(/databases/$(database)/documents/issuances/$(resource.data.issuance_id))
+            && getAfter(/databases/$(database)/documents/issuances/$(resource.data.issuance_id)).data.reference_key != referenceKey));
     }
 
     match /users/{userId} {
