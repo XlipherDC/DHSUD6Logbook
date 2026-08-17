@@ -33,8 +33,8 @@ const routeFromHash = (): Route => {
 };
 const monthNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
-const emptyRecord = (): IssuanceInput => ({
-  reference_number: "", issuance_type: "Development Permit", source_sheet: "Manual",
+const emptyRecord = (initialType = "Development Permit"): IssuanceInput => ({
+  reference_number: "", issuance_type: initialType || "Development Permit", source_sheet: "Manual",
   source_row: null, date_filed: "", date_issued: new Date().toISOString().slice(0, 10),
   project_name: "", location: "", applicant: "", developer: "", owner: "",
   processor: "", or_number: "", remarks: "", assigned_to: "", details: {},
@@ -150,7 +150,7 @@ export default function App({ identity }: { identity: Identity }) {
       if (profile.role !== "admin" || !window.confirm(`Delete ${selected.reference_number}? This cannot be undone.`)) return;
       try { await deleteIssuance(selected.id); setSelectedId(null); } catch (reason) { setError(reason instanceof Error ? reason.message : "Could not delete the record."); }
     }} />}
-    {editing && <IssuanceForm current={editing === "new" ? null : editing} issuances={issuances} users={users} profile={profile} close={() => setEditing(null)} saved={(id) => { setEditing(null); setSelectedId(id); }} fail={setError} />}
+    {editing && <IssuanceForm current={editing === "new" ? null : editing} initialType={editing === "new" && view === "type" ? selectedType : ""} issuances={issuances} users={users} profile={profile} close={() => setEditing(null)} saved={(id) => { setEditing(null); setSelectedId(id); }} fail={setError} />}
   </div>;
 }
 
@@ -270,17 +270,19 @@ function Info({ icon, label, value }: { icon: React.ReactNode; label: string; va
   return <div className="info-row"><span>{icon}</span><div><small>{label}</small><strong>{value || "Not recorded"}</strong></div></div>;
 }
 
-function IssuanceForm({ current, issuances, users, profile, close, saved, fail }: { current: Issuance | null; issuances: Issuance[]; users: Profile[]; profile: Profile; close: () => void; saved: (id: string) => void; fail: (message: string) => void }) {
+function IssuanceForm({ current, initialType, issuances, users, profile, close, saved, fail }: { current: Issuance | null; initialType: string; issuances: Issuance[]; users: Profile[]; profile: Profile; close: () => void; saved: (id: string) => void; fail: (message: string) => void }) {
   const [form, setForm] = useState<IssuanceInput>(current ? {
     reference_number: current.reference_number, issuance_type: current.issuance_type, source_sheet: current.source_sheet,
     source_row: current.source_row, date_filed: isIsoDate(current.date_filed) ? current.date_filed : "", date_issued: isIsoDate(current.date_issued) ? current.date_issued : "",
     project_name: current.project_name, location: current.location, applicant: current.applicant, developer: current.developer,
     owner: current.owner, processor: current.processor, or_number: current.or_number, remarks: current.remarks,
     assigned_to: current.assigned_to, details: current.details,
-  } : emptyRecord());
+  } : emptyRecord(initialType));
   const [saving, setSaving] = useState(false);
   const set = (field: keyof IssuanceInput, value: string) => setForm((previous) => ({ ...previous, [field]: value }));
+  const setDetail = (field: string, value: string) => setForm((previous) => ({ ...previous, details: { ...previous.details, [field]: value } }));
   const isRemc = form.issuance_type === "REMC";
+  const isCertificateOfRegistration = form.issuance_type === "Certificate of Registration";
   const submit = async (event: React.FormEvent) => {
     event.preventDefault();
     const referenceNumber = isRemc ? normalizeRemcDecisionNumber(form.reference_number) : form.reference_number.trim();
@@ -294,7 +296,18 @@ function IssuanceForm({ current, issuances, users, profile, close, saved, fail }
       fail(`Reference Number "${referenceNumber}" already exists. Use a unique Reference Number.`);
       return;
     }
-    const payload = { ...form, reference_number: referenceNumber };
+    const details = isCertificateOfRegistration ? {
+      ...form.details,
+      "CR No": referenceNumber,
+      "Date Filed": form.date_filed,
+      "Date Issued": form.date_issued,
+      "Project Name": form.project_name,
+      Location: form.location,
+      Developer: form.developer,
+      Owner: form.owner,
+      Processor: form.processor,
+    } : form.details;
+    const payload = { ...form, reference_number: referenceNumber, details };
     setSaving(true);
     try {
       if (current) { await updateIssuance(current.id, payload, profile); saved(current.id); }
@@ -302,10 +315,11 @@ function IssuanceForm({ current, issuances, users, profile, close, saved, fail }
     } catch (reason) { fail(reason instanceof Error ? reason.message : "Could not save the issuance."); setSaving(false); }
   };
   return <div className="modal-layer"><button className="modal-scrim" aria-label="Close form" onClick={close} /><div className="modal">
-    <div className="modal-head"><div><span className="eyebrow">{current ? "Update registry entry" : "Add to registry"}</span><h2>{current ? "Edit issuance" : "New issuance"}</h2></div><button className="icon-button" onClick={close}><X /></button></div>
+    <div className="modal-head"><div><span className="eyebrow">{current ? "Update registry entry" : "Add to registry"}</span><h2>{isCertificateOfRegistration ? `${current ? "Edit" : "New"} Certificate of Registration` : current ? "Edit issuance" : "New issuance"}</h2></div><button className="icon-button" onClick={close}><X /></button></div>
     <form onSubmit={submit}><div className="form-grid">
+      <label className="wide">Issuance type<select required value={form.issuance_type} onChange={(event) => set("issuance_type", event.target.value)}>{issuanceTypes.map((type) => <option key={type}>{type}</option>)}</select></label>
+      {isCertificateOfRegistration ? <CertificateRegistrationFields form={form} set={set} setDetail={setDetail} /> : <>
       <label>{isRemc ? "Decision number" : "Reference / decision no."}<input required value={form.reference_number} onChange={(event) => set("reference_number", event.target.value)} onBlur={() => isRemc && set("reference_number", normalizeRemcDecisionNumber(form.reference_number))} pattern={isRemc ? "REMC-[0-9]{4}-[0-9]+[A-Z]?" : undefined} title={isRemc ? "Use REMC-YYYY-NUMBER, with an optional letter suffix." : undefined} placeholder={isRemc ? "REMC-2026-118" : undefined} />{isRemc && <small className="field-help">Format: REMC-YYYY-NUMBER. One letter suffix is allowed.</small>}</label>
-      <label>Issuance type<select required value={form.issuance_type} onChange={(event) => set("issuance_type", event.target.value)}>{issuanceTypes.map((type) => <option key={type}>{type}</option>)}</select></label>
       <label>Date filed<input type="date" value={form.date_filed} onChange={(event) => set("date_filed", event.target.value)} /></label>
       <label>Date issued<input type="date" required value={form.date_issued} onChange={(event) => set("date_issued", event.target.value)} /></label>
       <label className="wide">Project / subject<input required value={form.project_name} onChange={(event) => set("project_name", event.target.value)} /></label>
@@ -317,6 +331,32 @@ function IssuanceForm({ current, issuances, users, profile, close, saved, fail }
       <label>Official receipt number<input value={form.or_number} onChange={(event) => set("or_number", event.target.value)} /></label>
       <label>Assign to user<select value={form.assigned_to} onChange={(event) => set("assigned_to", event.target.value)}><option value="">No direct assignment</option>{users.map((user) => <option key={user.id} value={user.id}>{user.name}{user.processor_code ? ` (${user.processor_code})` : ""}</option>)}</select></label>
       <label className="wide">Remarks<textarea rows={4} value={form.remarks} onChange={(event) => set("remarks", event.target.value)} /></label>
+      </>}
     </div><div className="form-actions"><button type="button" className="secondary" onClick={close}>Cancel</button><button className="primary" disabled={saving}>{saving ? "Saving…" : current ? "Save changes" : "Add issuance"}</button></div></form>
   </div></div>;
+}
+
+function CertificateRegistrationFields({ form, set, setDetail }: {
+  form: IssuanceInput;
+  set: (field: keyof IssuanceInput, value: string) => void;
+  setDetail: (field: string, value: string) => void;
+}) {
+  return <>
+    <label>CR No.<input required value={form.reference_number} onChange={(event) => set("reference_number", event.target.value)} /></label>
+    <label>Date Filed<input type="date" value={form.date_filed} onChange={(event) => set("date_filed", event.target.value)} /></label>
+    <label>Date Issued<input type="date" required value={form.date_issued} onChange={(event) => set("date_issued", event.target.value)} /></label>
+    <label className="wide">Project Name<input required value={form.project_name} onChange={(event) => set("project_name", event.target.value)} /></label>
+    <label className="wide">Location<input value={form.location} onChange={(event) => set("location", event.target.value)} /></label>
+    <label>Developer<input value={form.developer} onChange={(event) => set("developer", event.target.value)} /></label>
+    <label>Owner<input value={form.owner} onChange={(event) => set("owner", event.target.value)} /></label>
+    <label className="wide">Survey<input value={form.details.Survey || ""} onChange={(event) => setDetail("Survey", event.target.value)} /></label>
+    <label>Land Area (Sqm)<input value={form.details["Land Area (Sqm)"] || ""} onChange={(event) => setDetail("Land Area (Sqm)", event.target.value)} /></label>
+    <label>Bldg Area<input value={form.details["Bldg Area"] || ""} onChange={(event) => setDetail("Bldg Area", event.target.value)} /></label>
+    <label>Lot<input value={form.details.Lot || ""} onChange={(event) => setDetail("Lot", event.target.value)} /></label>
+    <label>HL<input value={form.details.HL || ""} onChange={(event) => setDetail("HL", event.target.value)} /></label>
+    <label>Unit<input value={form.details.Unit || ""} onChange={(event) => setDetail("Unit", event.target.value)} /></label>
+    <label>Category<input value={form.details.Category || ""} onChange={(event) => setDetail("Category", event.target.value)} /></label>
+    <label>Project Cost<input value={form.details["Project Cost"] || ""} onChange={(event) => setDetail("Project Cost", event.target.value)} /></label>
+    <label>Processor<input value={form.processor} onChange={(event) => set("processor", event.target.value)} /></label>
+  </>;
 }
