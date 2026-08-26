@@ -2,11 +2,15 @@ const organizationPattern = /(?:\b(inc\.?|incorporated|corp\.?|corporation|compa
 const hiddenDetailPattern = /^(remarks(?:\/changes)?|natureofalteration|or[_ ]?number|or[_ ]?datereceived|signature|tel\/cp)$/i;
 const partyKeyPattern = /^(applicant|owner|authrep|developer)$/i;
 
+// Organization names are public business identifiers and should not be reduced
+// to a final word in the same way as personal names.
 export function isOrganization(value) {
   return organizationPattern.test(String(value || ""));
 }
 
 function surname(value) {
+  // Remove titles, parenthetical notes, suffixes, and trailing punctuation
+  // before selecting the final remaining name token.
   const cleaned = String(value || "")
     .replace(/\([^)]*\)/g, " ")
     .replace(/\b(?:sps?\.?|atty\.?|engr\.?|arch\.?|mr\.?|mrs\.?|ms\.?)\b/gi, " ")
@@ -29,6 +33,8 @@ export function sanitizeParty(value) {
 }
 
 export function sanitizeRecord(record) {
+  // Keep operational fields in the private dataset only. Worksheet-specific
+  // details are retained unless their column names are explicitly sensitive.
   const details = {};
   for (const [key, value] of Object.entries(record.details || {})) {
     if (hiddenDetailPattern.test(key)) continue;

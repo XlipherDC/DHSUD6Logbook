@@ -3,6 +3,9 @@ import { sanitizeRecord } from "./public-data-utils.mjs";
 
 const sourcePath = process.argv[2] || "private-data/issuances.json";
 const targetPath = process.argv[3] || "src/seed/issuances.public.json";
+
+// Publishing is an explicit private-to-public transformation: the source stays
+// ignored by Git while only the sanitized snapshot is written under src/seed.
 const records = JSON.parse(await readFile(sourcePath, "utf8"));
 const sanitized = records.map(sanitizeRecord);
 

@@ -6,8 +6,12 @@ const required = ["id", "reference_number", "issuance_type", "project_name", "so
 const problems = [];
 const ids = new Set();
 const references = new Map();
+// These three duplicate pairs came from the source workbook and remain allowed
+// only until their corrected official numbers are confirmed.
 const legacyDuplicateReferences = new Set(["REMC-2025-152", "REMC-2025-158", "2026/06-15"]);
 
+// Validate the exact static snapshot that GitHub Pages publishes. A failure here
+// blocks deployment before private fields or malformed records reach the site.
 for (const [index, record] of records.entries()) {
   for (const field of required) {
     if (!record[field]) problems.push(`Record ${index + 1} is missing ${field}`);

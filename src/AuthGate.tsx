@@ -4,8 +4,13 @@ import { FileCheck2, LockKeyhole, LogIn } from "lucide-react";
 import type { Identity } from "./data";
 import { auth, demoMode, firebaseConfigured, publicDataMode } from "./firebase";
 
+// AuthGate separates Firebase Authentication from application authorization.
+// App later loads users/{uid} to decide whether the identity is active and what
+// role it has; this component only establishes who is signed in.
 export default function AuthGate({ children }: { children: (identity: Identity) => React.ReactNode }) {
   const localMode = demoMode || publicDataMode;
+  // Public and demo builds use synthetic identities so they can render without
+  // contacting Firebase Authentication.
   const [identity, setIdentity] = useState<Identity | null>(localMode ? {
     uid: publicDataMode ? "public-viewer" : "demo-user",
     email: publicDataMode ? "" : "demo@dhsud.gov.ph",
@@ -18,6 +23,8 @@ export default function AuthGate({ children }: { children: (identity: Identity) 
 
   useEffect(() => {
     if (localMode || !auth) return;
+    // Firebase persists sessions. The observer restores an existing login and
+    // keeps the UI synchronized when the account signs in or out.
     return onAuthStateChanged(auth, (account) => {
       setIdentity(account ? {
         uid: account.uid,

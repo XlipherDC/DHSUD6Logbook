@@ -10,6 +10,7 @@ import {
 } from "./data";
 import { demoMode, publicDataMode } from "./firebase";
 
+// This ordered list drives the type selector, directory cards, and hash routes.
 const issuanceTypes = [
   "Development Permit", "Alteration Permit", "Certificate of Registration",
   "License to Sell — Subdivision", "License to Sell — Condominium",
@@ -18,6 +19,9 @@ const issuanceTypes = [
 ];
 type View = "dashboard" | "all" | "mine" | "types" | "type";
 type Route = { view: View; type: string };
+
+// GitHub Pages has no server-side router, so hash routes make every dedicated
+// issuance page directly linkable without requiring rewrite configuration.
 const typeSlug = (value: string) => value.normalize("NFKD").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
 const routeFromHash = (): Route => {
   const hash = window.location.hash.replace(/^#\/?/, "");
@@ -33,6 +37,8 @@ const routeFromHash = (): Route => {
 };
 const monthNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
+// New forms start with safe defaults while imported fields retain their source
+// metadata when an existing issuance is edited.
 const emptyRecord = (initialType = "Development Permit"): IssuanceInput => ({
   reference_number: "", issuance_type: initialType || "Development Permit", source_sheet: "Manual",
   source_row: null, date_filed: "", date_issued: new Date().toISOString().slice(0, 10),
@@ -42,6 +48,9 @@ const emptyRecord = (initialType = "Development Permit"): IssuanceInput => ({
 const isIsoDate = (value: string) => /^\d{4}-\d{2}-\d{2}$/.test(value);
 const remcDecisionNumberPattern = /^REMC-\d{4}-\d+[A-Z]?$/;
 const normalizeRemcDecisionNumber = (value: string) => value.trim().toUpperCase().replace(/\s*-\s*/g, "-");
+
+// Suggest the next REMC sequence for the selected issuance year. A placeholder
+// deliberately does not submit a value; staff must confirm the official number.
 const nextRemcDecisionNumber = (issuances: Issuance[], dateIssued: string) => {
   const year = isIsoDate(dateIssued) ? dateIssued.slice(0, 4) : String(new Date().getFullYear());
   const highest = issuances.reduce((maximum, item) => {
@@ -83,6 +92,8 @@ export default function App({ identity }: { identity: Identity }) {
     window.addEventListener("hashchange", syncRoute);
     return () => window.removeEventListener("hashchange", syncRoute);
   }, []);
+  // Real-time subscriptions keep permissions, users, and issuance rows current
+  // without requiring a page refresh in the authenticated staff portal.
   useEffect(() => subscribeProfile(identity, setProfile, (reason) => setError(reason.message)), [identity]);
   useEffect(() => {
     if (!profile?.active) return;
@@ -99,6 +110,8 @@ export default function App({ identity }: { identity: Identity }) {
   const types = useMemo(() => [...new Set(issuances.map((item) => item.issuance_type).filter(Boolean))].sort(), [issuances]);
   const knownTypes = useMemo(() => [...new Set([...issuanceTypes, ...types])], [types]);
   const mine = (item: Issuance) => item.assigned_to === profile?.id || Boolean(profile?.processor_code && item.processor.toLowerCase() === profile.processor_code.toLowerCase());
+  // Apply all registry filters in one memoized pass so dashboard state remains
+  // responsive as Firestore snapshots arrive.
   const filtered = useMemo(() => issuances.filter((item) => {
     const haystack = [item.reference_number, item.project_name, item.location, item.applicant, item.developer, item.owner, item.processor, item.or_number, item.issuance_type].join(" ").toLowerCase();
     return (!query || haystack.includes(query.toLowerCase()))
@@ -162,6 +175,8 @@ export default function App({ identity }: { identity: Identity }) {
   </div>;
 }
 
+// Dashboard calculations are derived from the current issuance snapshot, so
+// totals and charts update automatically when Firestore data changes.
 function Dashboard({ issuances, mineCount, open, openType }: { issuances: Issuance[]; mineCount: number; open: (id: string) => void; openType: (type: string) => void }) {
   const today = new Date();
   const currentYear = String(today.getFullYear());
@@ -234,6 +249,8 @@ type RegistryProps = {
   types: string[]; typeFilter: string; setTypeFilter: (value: string) => void; years: string[]; yearFilter: string; setYearFilter: (value: string) => void;
   processors: string[]; processorFilter: string; setProcessorFilter: (value: string) => void; open: (id: string) => void; hideTypeFilter?: boolean;
 };
+// Registry owns table filtering output and exports only the currently visible
+// result set, which makes filtered CSV downloads predictable for staff.
 function Registry(props: RegistryProps) {
   const exportCsv = () => {
     const fields: Array<keyof Issuance> = ["reference_number", "issuance_type", "date_filed", "date_issued", "project_name", "location", "applicant", "developer", "owner", "processor", "or_number", "remarks"];
@@ -260,6 +277,8 @@ function Registry(props: RegistryProps) {
   </section>;
 }
 
+// The drawer exposes normalized fields first and then any worksheet-specific
+// values retained in details, avoiding duplicate display of imported columns.
 function DetailDrawer({ item, profile, canEdit, close, edit, remove }: { item: Issuance; profile: Profile; canEdit: boolean; close: () => void; edit: () => void; remove: () => void }) {
   const turnaround = daysBetween(item.date_filed, item.date_issued);
   const extraDetails = Object.entries(item.details).filter(([key]) => !["Date Filed", "Date Issued", "Processor", "Project Name", "ProjectName", "Location", "Developer", "Owner"].includes(key));
@@ -278,6 +297,8 @@ function Info({ icon, label, value }: { icon: React.ReactNode; label: string; va
   return <div className="info-row"><span>{icon}</span><div><small>{label}</small><strong>{value || "Not recorded"}</strong></div></div>;
 }
 
+// One form handles every issuance type. REMC validation and the CR column layout
+// are selected from issuance_type while shared save logic stays centralized.
 function IssuanceForm({ current, initialType, issuances, users, profile, close, saved, fail }: { current: Issuance | null; initialType: string; issuances: Issuance[]; users: Profile[]; profile: Profile; close: () => void; saved: (id: string) => void; fail: (message: string) => void }) {
   const [form, setForm] = useState<IssuanceInput>(current ? {
     reference_number: current.reference_number, issuance_type: current.issuance_type, source_sheet: current.source_sheet,
@@ -299,12 +320,16 @@ function IssuanceForm({ current, initialType, issuances, users, profile, close, 
       fail("REMC Decision Number must use REMC-YYYY-NUMBER, for example REMC-2026-118.");
       return;
     }
+    // Give immediate feedback from the local snapshot. The transaction in
+    // data.ts remains the authoritative race-safe duplicate check.
     const duplicate = issuances.find((item) => item.id !== current?.id
       && canonicalReferenceNumber(item.reference_number) === canonicalReferenceNumber(referenceNumber));
     if (duplicate && (!current || referenceNumber !== current.reference_number)) {
       fail(`Reference Number "${referenceNumber}" already exists. Use a unique Reference Number.`);
       return;
     }
+    // CR records mirror their core values into details to remain compatible
+    // with the original spreadsheet column structure and migration scripts.
     const details = isCertificateOfRegistration ? {
       ...form.details,
       "CR No": referenceNumber,
@@ -345,6 +370,8 @@ function IssuanceForm({ current, initialType, issuances, users, profile, close, 
   </div></div>;
 }
 
+// Certificate of Registration uses the same field order as its source register.
+// Type-specific values live in details so the common Issuance model stays small.
 function CertificateRegistrationFields({ form, set, setDetail }: {
   form: IssuanceInput;
   set: (field: keyof IssuanceInput, value: string) => void;

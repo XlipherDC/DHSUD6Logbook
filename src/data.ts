@@ -39,6 +39,8 @@ export type Issuance = {
 
 export type IssuanceInput = Omit<Issuance, "id" | "created_at" | "updated_at" | "updated_by">;
 
+// Reference numbers are compared case-insensitively with collapsed whitespace.
+// The encoded value is safe to use as a Firestore reservation document ID.
 export const canonicalReferenceNumber = (value: string) => value.trim().replace(/\s+/g, " ").toUpperCase();
 const referenceKey = (value: string) => encodeURIComponent(canonicalReferenceNumber(value)).replace(/\./g, "%2E");
 const duplicateReferenceError = (value: string) => new Error(`Reference Number "${value}" already exists. Use a unique Reference Number.`);
@@ -55,6 +57,9 @@ const dateValue = (value: unknown) => {
   return typeof value === "string" ? value : now();
 };
 const textValue = (value: unknown) => typeof value === "string" ? value : "";
+
+// Convert loose Firestore/static JSON values into the stable shape consumed by
+// the UI. This keeps rendering code free from timestamp and null checks.
 const mapIssuance = (id: string, value: Record<string, unknown>): Issuance => ({
   id,
   reference_number: textValue(value.reference_number),
@@ -110,6 +115,8 @@ function store() {
 }
 
 export function subscribeIssuances(next: (items: Issuance[]) => void, fail: (error: Error) => void) {
+  // Public builds read the sanitized snapshot; demo builds use in-memory data;
+  // only the authenticated staff build opens a real-time Firestore listener.
   if (publicDataMode) {
     next(newestFirst((publicSeed as Array<Record<string, unknown>>).map((item) => mapIssuance(String(item.id), item))));
     return () => undefined;
@@ -127,6 +134,8 @@ export function subscribeIssuances(next: (items: Issuance[]) => void, fail: (err
 }
 
 export function subscribeProfile(identity: Identity, next: (profile: Profile | null) => void, fail: (error: Error) => void) {
+  // The users/{uid} record is the source of authorization roles and processor
+  // assignments. Authentication alone does not grant registry access.
   if (publicDataMode) {
     next({ id: identity.uid, name: "Public Viewer", email: "", role: "viewer", processor_code: "", active: true });
     return () => undefined;
@@ -182,6 +191,8 @@ export async function createIssuance(payload: IssuanceInput, actor: Profile) {
   const issuanceReference = doc(collection(database, "issuances"));
   const key = referenceKey(payload.reference_number);
   const reservationReference = doc(database, "issuance_reference_numbers", key);
+  // Reserve the canonical number and create the issuance atomically. Concurrent
+  // attempts for the same number cannot both observe an empty reservation.
   await runTransaction(database, async (transaction) => {
     const reservation = await transaction.get(reservationReference);
     if (reservation.exists()) throw duplicateReferenceError(payload.reference_number);
@@ -218,11 +229,15 @@ export async function updateIssuance(id: string, payload: IssuanceInput, actor: 
 
     const previousNumber = textValue(existing.data().reference_number);
     const previousKey = textValue(existing.data().reference_key);
+    // Imported legacy records predate reservation keys. They may still be
+    // edited while their unchanged reference numbers are grandfathered.
     if (!previousKey && previousNumber === payload.reference_number) {
       transaction.update(issuanceReference, { ...payload, updated_at: serverTimestamp(), updated_by: actor.name });
       return;
     }
 
+    // A changed reference number acquires its new reservation before the old
+    // one is released, all within the same transaction.
     const nextKey = referenceKey(payload.reference_number);
     const nextReservationReference = doc(database, "issuance_reference_numbers", nextKey);
     const nextReservation = await transaction.get(nextReservationReference);
@@ -255,6 +270,8 @@ export async function deleteIssuance(id: string) {
   }
   const database = store();
   const issuanceReference = doc(database, "issuances", id);
+  // Delete the linked reservation with the issuance so the number can be
+  // reused intentionally after an administrator removes the record.
   await runTransaction(database, async (transaction) => {
     const existing = await transaction.get(issuanceReference);
     if (!existing.exists()) return;
