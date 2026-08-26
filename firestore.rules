@@ -7,6 +7,8 @@ service cloud.firestore {
     }
 
     function userRecord() {
+      // Roles and active status are stored separately from Firebase Auth so an
+      // account can be disabled without deleting its authentication identity.
       return get(/databases/$(database)/documents/users/$(request.auth.uid));
     }
 
@@ -23,24 +25,31 @@ service cloud.firestore {
     }
 
     function validDecisionNumber() {
+      // REMC has a stricter official-number format; other issuance types retain
+      // their source-specific reference formats.
       return request.resource.data.issuance_type != 'REMC'
         || (request.resource.data.reference_number is string
           && request.resource.data.reference_number.matches('^REMC-[0-9]{4}-[0-9]+[A-Z]?$'));
     }
 
     function referenceReserved(issuanceId) {
+      // getAfter verifies the companion reservation as it will exist after the
+      // transaction commits, making the uniqueness protocol atomic.
       return request.resource.data.reference_key is string
         && existsAfter(/databases/$(database)/documents/issuance_reference_numbers/$(request.resource.data.reference_key))
         && getAfter(/databases/$(database)/documents/issuance_reference_numbers/$(request.resource.data.reference_key)).data.issuance_id == issuanceId;
     }
 
     function legacyReferenceUnchanged() {
+      // Imported records created before reservations were introduced remain
+      // editable only while their original reference number is unchanged.
       return !('reference_key' in resource.data)
         && !('reference_key' in request.resource.data)
         && request.resource.data.reference_number == resource.data.reference_number;
     }
 
     match /issuances/{issuanceId} {
+      // Viewers may read; processors/admins edit; only admins permanently delete.
       allow read: if authorized();
       allow create: if editor() && validDecisionNumber() && referenceReserved(issuanceId);
       allow update: if editor() && validDecisionNumber()
@@ -51,6 +60,8 @@ service cloud.firestore {
     }
 
     match /issuance_reference_numbers/{referenceKey} {
+      // Each canonical reference key points to exactly one issuance. Both sides
+      // must be written or removed in the same transaction.
       allow read: if authorized();
       allow create: if editor()
         && request.resource.data.issuance_id is string
@@ -68,6 +79,8 @@ service cloud.firestore {
     }
 
     match /users/{userId} {
+      // Users can bootstrap by reading their own profile. Broader user directory
+      // access requires authorization, and only admins may manage accounts.
       allow get: if signedIn() && userId == request.auth.uid;
       allow list: if authorized();
       allow create, update, delete: if administrator();

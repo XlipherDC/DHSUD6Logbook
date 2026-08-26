@@ -14,6 +14,8 @@ const config = {
 };
 const email = process.env.FIREBASE_IMPORT_EMAIL || "";
 const password = process.env.FIREBASE_IMPORT_PASSWORD || "";
+// --dry-run validates the ignored private snapshot without authenticating or
+// writing to Firebase, which is useful before a production migration.
 const dryRun = process.argv.includes("--dry-run");
 
 const records = JSON.parse(await readFile(new URL("../private-data/issuances.json", import.meta.url), "utf8"));
@@ -32,10 +34,14 @@ if (!dryRun) {
   const database = getFirestore(app);
   await signInWithEmailAndPassword(auth, email, password);
 
+  // Firestore permits at most 500 writes per batch. Groups of 400 leave
+  // operational headroom while keeping progress reporting useful.
   for (let offset = 0; offset < records.length; offset += 400) {
     const batch = writeBatch(database);
     for (const record of records.slice(offset, offset + 400)) {
       const { id, ...payload } = record;
+      // Deterministic IDs make retries idempotent; merge preserves fields that
+      // may have been added by later application versions.
       batch.set(doc(database, "issuances", id), {
         ...payload,
         created_at: serverTimestamp(),

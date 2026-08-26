@@ -11,9 +11,14 @@ const firebaseConfig = {
   appId: import.meta.env.VITE_FIREBASE_APP_ID,
 };
 
+// The same frontend supports three environments: synthetic local data, the
+// redacted public registry, and the authenticated Firestore staff portal.
 export const demoMode = import.meta.env.VITE_DEMO_MODE === "true";
 export const publicDataMode = import.meta.env.VITE_PUBLIC_DATA_MODE === "true";
 export const firebaseConfigured = Object.values(firebaseConfig).every(Boolean);
+
+// Avoid initializing Firebase in public/demo builds, and reuse the initialized
+// app during Vite hot reloads instead of creating duplicate Firebase instances.
 export const firebaseApp = firebaseConfigured
   ? (getApps().length ? getApp() : initializeApp(firebaseConfig))
   : null;
