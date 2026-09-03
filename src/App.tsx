@@ -59,6 +59,21 @@ const nextRemcDecisionNumber = (issuances: Issuance[], dateIssued: string) => {
   }, 0);
   return `REMC-${year}-${String(highest + 1).padStart(3, "0")}`;
 };
+
+// Advertisement Approval numbers use the issuance year/month followed by a
+// yearly running sequence. Both legacy hyphens and the current slash separator
+// are recognized when finding the highest number.
+const nextAdvertisementApprovalNumber = (issuances: Issuance[], dateIssued: string) => {
+  const date = isIsoDate(dateIssued) ? dateIssued : new Date().toISOString().slice(0, 10);
+  const [year, month] = date.split("-");
+  const highest = issuances.reduce((maximum, item) => {
+    const match = item.issuance_type === "Advertisement Approval"
+      ? item.reference_number.match(/^(\d{4})[/-]\d{2}-(\d+)$/)
+      : null;
+    return match?.[1] === year ? Math.max(maximum, Number(match[2])) : maximum;
+  }, 0);
+  return `${year}/${month}-${String(highest + 1).padStart(2, "0")}`;
+};
 const formatDate = (value: string) => {
   if (!value) return "Not recorded";
   if (!isIsoDate(value)) return value;
@@ -311,8 +326,10 @@ function IssuanceForm({ current, initialType, issuances, users, profile, close, 
   const set = (field: keyof IssuanceInput, value: string) => setForm((previous) => ({ ...previous, [field]: value }));
   const setDetail = (field: string, value: string) => setForm((previous) => ({ ...previous, details: { ...previous.details, [field]: value } }));
   const isRemc = form.issuance_type === "REMC";
+  const isAdvertisementApproval = form.issuance_type === "Advertisement Approval";
   const isCertificateOfRegistration = form.issuance_type === "Certificate of Registration";
   const remcDecisionNumberPlaceholder = nextRemcDecisionNumber(issuances, form.date_issued);
+  const advertisementApprovalPlaceholder = nextAdvertisementApprovalNumber(issuances, form.date_issued);
   const submit = async (event: React.FormEvent) => {
     event.preventDefault();
     const referenceNumber = isRemc ? normalizeRemcDecisionNumber(form.reference_number) : form.reference_number.trim();
@@ -353,7 +370,7 @@ function IssuanceForm({ current, initialType, issuances, users, profile, close, 
     <form onSubmit={submit}><div className="form-grid">
       <label className="wide">Issuance type<select required value={form.issuance_type} onChange={(event) => set("issuance_type", event.target.value)}>{issuanceTypes.map((type) => <option key={type}>{type}</option>)}</select></label>
       {isCertificateOfRegistration ? <CertificateRegistrationFields form={form} set={set} setDetail={setDetail} /> : <>
-      <label>{isRemc ? "Decision number" : "Reference / decision no."}<input required value={form.reference_number} onChange={(event) => set("reference_number", event.target.value)} onBlur={() => isRemc && set("reference_number", normalizeRemcDecisionNumber(form.reference_number))} pattern={isRemc ? "REMC-[0-9]{4}-[0-9]+[A-Z]?" : undefined} title={isRemc ? "Use REMC-YYYY-NUMBER, with an optional letter suffix." : undefined} placeholder={isRemc ? remcDecisionNumberPlaceholder : undefined} />{isRemc && <small className="field-help">Suggested next: {remcDecisionNumberPlaceholder}. Confirm before saving.</small>}</label>
+      <label>{isRemc ? "Decision number" : isAdvertisementApproval ? "Advertisement approval number" : "Reference / decision no."}<input required value={form.reference_number} onChange={(event) => set("reference_number", event.target.value)} onBlur={() => isRemc && set("reference_number", normalizeRemcDecisionNumber(form.reference_number))} pattern={isRemc ? "REMC-[0-9]{4}-[0-9]+[A-Z]?" : undefined} title={isRemc ? "Use REMC-YYYY-NUMBER, with an optional letter suffix." : undefined} placeholder={isRemc ? remcDecisionNumberPlaceholder : isAdvertisementApproval ? advertisementApprovalPlaceholder : undefined} />{isRemc ? <small className="field-help">Suggested next: {remcDecisionNumberPlaceholder}. Confirm before saving.</small> : isAdvertisementApproval ? <small className="field-help">Suggested next: {advertisementApprovalPlaceholder}. Confirm before saving.</small> : null}</label>
       <label>Date filed<input type="date" value={form.date_filed} onChange={(event) => set("date_filed", event.target.value)} /></label>
       <label>Date issued<input type="date" required value={form.date_issued} onChange={(event) => set("date_issued", event.target.value)} /></label>
       <label className="wide">Project / subject<input required value={form.project_name} onChange={(event) => set("project_name", event.target.value)} /></label>
