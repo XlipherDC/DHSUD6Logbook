@@ -6,6 +6,12 @@ const required = ["id", "reference_number", "issuance_type", "project_name", "so
 const problems = [];
 const ids = new Set();
 const references = new Map();
+const oneCalendarYearAfter = (value) => {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(String(value || ""))) return "";
+  const [year, month, day] = value.split("-").map(Number);
+  const lastDayOfMonth = new Date(Date.UTC(year + 1, month, 0)).getUTCDate();
+  return `${year + 1}-${String(month).padStart(2, "0")}-${String(Math.min(day, lastDayOfMonth)).padStart(2, "0")}`;
+};
 // These three duplicate pairs came from the source workbook and remain allowed
 // only until their corrected official numbers are confirmed.
 const legacyDuplicateReferences = new Set(["REMC-2025-152", "REMC-2025-158", "2026/06-15"]);
@@ -44,8 +50,8 @@ for (const [index, record] of records.entries()) {
     }
   }
   if (record.issuance_type === "Temporary License to Sell"
-    && (!record.expiry_date || record.expiry_date < record.date_issued)) {
-    problems.push(`${record.id} has a TLS expiry date before its issuance date`);
+    && record.expiry_date !== oneCalendarYearAfter(record.date_issued)) {
+    problems.push(`${record.id} does not expire one calendar year after issuance`);
   }
 }
 

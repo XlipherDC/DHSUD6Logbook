@@ -148,7 +148,8 @@ Existing decisions may use one uppercase letter suffix, such as
 `REMC-2026-0010A`.
 
 Temporary License to Sell records use the same core fields as License to Sell
-records and require an `expiry_date` on or after `date_issued`.
+records. Their `expiry_date` is automatically set to one calendar year after
+`date_issued`.
 
 New and changed Reference Numbers are reserved transactionally in
 `issuance_reference_numbers`, preventing two staff members from saving the

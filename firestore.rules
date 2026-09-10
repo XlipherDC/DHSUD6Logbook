@@ -34,7 +34,7 @@ service cloud.firestore {
 
     function validTemporaryLicense() {
       // A TLS always carries normalized issuance and expiry dates. The form
-      // also enforces their chronological order before submitting the write.
+      // calculates the expiry as one calendar year after issuance.
       return request.resource.data.issuance_type != 'Temporary License to Sell'
         || (request.resource.data.date_issued is string
           && request.resource.data.expiry_date is string

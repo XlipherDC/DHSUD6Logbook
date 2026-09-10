@@ -46,6 +46,12 @@ const emptyRecord = (initialType = "Development Permit"): IssuanceInput => ({
   processor: "", or_number: "", remarks: "", assigned_to: "", details: {},
 });
 const isIsoDate = (value: string) => /^\d{4}-\d{2}-\d{2}$/.test(value);
+const oneCalendarYearAfter = (value: string) => {
+  if (!isIsoDate(value)) return "";
+  const [year, month, day] = value.split("-").map(Number);
+  const lastDayOfMonth = new Date(Date.UTC(year + 1, month, 0)).getUTCDate();
+  return `${year + 1}-${String(month).padStart(2, "0")}-${String(Math.min(day, lastDayOfMonth)).padStart(2, "0")}`;
+};
 const remcDecisionNumberPattern = /^REMC-\d{4}-\d+[A-Z]?$/;
 const normalizeRemcDecisionNumber = (value: string) => value.trim().toUpperCase().replace(/\s*-\s*/g, "-");
 
@@ -331,6 +337,7 @@ function IssuanceForm({ current, initialType, issuances, users, profile, close, 
   const isAdvertisementApproval = form.issuance_type === "Advertisement Approval";
   const isCertificateOfRegistration = form.issuance_type === "Certificate of Registration";
   const isTemporaryLicenseToSell = form.issuance_type === "Temporary License to Sell";
+  const tlsExpiryDate = isTemporaryLicenseToSell ? oneCalendarYearAfter(form.date_issued) : "";
   const remcDecisionNumberPlaceholder = nextRemcDecisionNumber(issuances, form.date_issued);
   const advertisementApprovalPlaceholder = nextAdvertisementApprovalNumber(issuances, form.date_issued);
   const submit = async (event: React.FormEvent) => {
@@ -340,8 +347,8 @@ function IssuanceForm({ current, initialType, issuances, users, profile, close, 
       fail("REMC Decision Number must use REMC-YYYY-NUMBER, for example REMC-2026-118.");
       return;
     }
-    if (isTemporaryLicenseToSell && (!isIsoDate(form.expiry_date) || form.expiry_date < form.date_issued)) {
-      fail("TLS expiry date must be on or after the date issued.");
+    if (isTemporaryLicenseToSell && !tlsExpiryDate) {
+      fail("Enter the TLS issuance date so its expiry can be calculated.");
       return;
     }
     // Give immediate feedback from the local snapshot. The transaction in
@@ -365,7 +372,7 @@ function IssuanceForm({ current, initialType, issuances, users, profile, close, 
       Owner: form.owner,
       Processor: form.processor,
     } : form.details;
-    const payload = { ...form, reference_number: referenceNumber, expiry_date: isTemporaryLicenseToSell ? form.expiry_date : "", details };
+    const payload = { ...form, reference_number: referenceNumber, expiry_date: tlsExpiryDate, details };
     setSaving(true);
     try {
       if (current) { await updateIssuance(current.id, payload, profile); saved(current.id); }
@@ -380,7 +387,7 @@ function IssuanceForm({ current, initialType, issuances, users, profile, close, 
       <label>{isRemc ? "Decision number" : isAdvertisementApproval ? "Advertisement approval number" : "Reference / decision no."}<input required value={form.reference_number} onChange={(event) => set("reference_number", event.target.value)} onBlur={() => isRemc && set("reference_number", normalizeRemcDecisionNumber(form.reference_number))} pattern={isRemc ? "REMC-[0-9]{4}-[0-9]+[A-Z]?" : undefined} title={isRemc ? "Use REMC-YYYY-NUMBER, with an optional letter suffix." : undefined} placeholder={isRemc ? remcDecisionNumberPlaceholder : isAdvertisementApproval ? advertisementApprovalPlaceholder : undefined} />{isRemc ? <small className="field-help">Suggested next: {remcDecisionNumberPlaceholder}. Confirm before saving.</small> : isAdvertisementApproval ? <small className="field-help">Suggested next: {advertisementApprovalPlaceholder}. Confirm before saving.</small> : null}</label>
       <label>Date filed<input type="date" value={form.date_filed} onChange={(event) => set("date_filed", event.target.value)} /></label>
       <label>Date issued<input type="date" required value={form.date_issued} onChange={(event) => set("date_issued", event.target.value)} /></label>
-      {isTemporaryLicenseToSell && <label>Expiry date<input type="date" required min={form.date_issued || undefined} value={form.expiry_date} onChange={(event) => set("expiry_date", event.target.value)} /></label>}
+      {isTemporaryLicenseToSell && <label>Expiry date<input type="date" readOnly value={tlsExpiryDate} /><small className="field-help">Automatically set to one calendar year after the date issued.</small></label>}
       <label className="wide">Project / subject<input required value={form.project_name} onChange={(event) => set("project_name", event.target.value)} /></label>
       <label className="wide">Location<input value={form.location} onChange={(event) => set("location", event.target.value)} /></label>
       <label>Applicant / representative<input value={form.applicant} onChange={(event) => set("applicant", event.target.value)} /></label>
