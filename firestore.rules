@@ -32,6 +32,16 @@ service cloud.firestore {
           && request.resource.data.reference_number.matches('^REMC-[0-9]{4}-[0-9]+[A-Z]?$'));
     }
 
+    function validTemporaryLicense() {
+      // A TLS always carries normalized issuance and expiry dates. The form
+      // also enforces their chronological order before submitting the write.
+      return request.resource.data.issuance_type != 'Temporary License to Sell'
+        || (request.resource.data.date_issued is string
+          && request.resource.data.expiry_date is string
+          && request.resource.data.date_issued.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$')
+          && request.resource.data.expiry_date.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$'));
+    }
+
     function referenceReserved(issuanceId) {
       // getAfter verifies the companion reservation as it will exist after the
       // transaction commits, making the uniqueness protocol atomic.
@@ -51,8 +61,8 @@ service cloud.firestore {
     match /issuances/{issuanceId} {
       // Viewers may read; processors/admins edit; only admins permanently delete.
       allow read: if authorized();
-      allow create: if editor() && validDecisionNumber() && referenceReserved(issuanceId);
-      allow update: if editor() && validDecisionNumber()
+      allow create: if editor() && validDecisionNumber() && validTemporaryLicense() && referenceReserved(issuanceId);
+      allow update: if editor() && validDecisionNumber() && validTemporaryLicense()
         && (legacyReferenceUnchanged() || referenceReserved(issuanceId));
       allow delete: if administrator()
         && (!('reference_key' in resource.data)

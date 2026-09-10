@@ -14,7 +14,7 @@ import { demoMode, publicDataMode } from "./firebase";
 const issuanceTypes = [
   "Development Permit", "Alteration Permit", "Certificate of Registration",
   "License to Sell — Subdivision", "License to Sell — Condominium",
-  "Certificate of Non-Coverage", "License to Sell Amendment", "REMC",
+  "Temporary License to Sell", "Certificate of Non-Coverage", "License to Sell Amendment", "REMC",
   "Advertisement Approval", "Change of Name / Owner / Developer", "Mortgage Clearance",
 ];
 type View = "dashboard" | "all" | "mine" | "types" | "type";
@@ -41,7 +41,7 @@ const monthNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep
 // metadata when an existing issuance is edited.
 const emptyRecord = (initialType = "Development Permit"): IssuanceInput => ({
   reference_number: "", issuance_type: initialType || "Development Permit", source_sheet: "Manual",
-  source_row: null, date_filed: "", date_issued: new Date().toISOString().slice(0, 10),
+  source_row: null, date_filed: "", date_issued: new Date().toISOString().slice(0, 10), expiry_date: "",
   project_name: "", location: "", applicant: "", developer: "", owner: "",
   processor: "", or_number: "", remarks: "", assigned_to: "", details: {},
 });
@@ -268,7 +268,7 @@ type RegistryProps = {
 // result set, which makes filtered CSV downloads predictable for staff.
 function Registry(props: RegistryProps) {
   const exportCsv = () => {
-    const fields: Array<keyof Issuance> = ["reference_number", "issuance_type", "date_filed", "date_issued", "project_name", "location", "applicant", "developer", "owner", "processor", "or_number", "remarks"];
+    const fields: Array<keyof Issuance> = ["reference_number", "issuance_type", "date_filed", "date_issued", "expiry_date", "project_name", "location", "applicant", "developer", "owner", "processor", "or_number", "remarks"];
     const escape = (value: unknown) => `"${String(value ?? "").replace(/"/g, '""')}"`;
     const csv = [fields.map(escape).join(","), ...props.items.map((item) => fields.map((field) => escape(item[field])).join(","))].join("\r\n");
     const link = document.createElement("a");
@@ -286,7 +286,7 @@ function Registry(props: RegistryProps) {
       <select aria-label="Filter by processor" value={props.processorFilter} onChange={(event) => props.setProcessorFilter(event.target.value)}><option>All processors</option>{props.processors.map((processor) => <option key={processor}>{processor}</option>)}</select>
     </div>
     <div className="table-wrap"><table><thead><tr><th>Reference</th><th>Project / applicant</th><th>Type</th><th>Location</th><th>Date issued</th><th>Processor</th><th /></tr></thead>
-      <tbody>{props.items.map((item) => <tr key={item.id} onClick={() => props.open(item.id)}><td><strong>{item.reference_number}</strong><span>Filed {formatDate(item.date_filed)}</span></td><td><strong>{item.project_name}</strong><span>{item.applicant || item.developer || item.owner || "Applicant not recorded"}</span></td><td><span className="type-badge">{item.issuance_type}</span></td><td>{item.location || "—"}</td><td><strong>{formatDate(item.date_issued)}</strong><span>{daysBetween(item.date_filed, item.date_issued) !== null ? `${daysBetween(item.date_filed, item.date_issued)} days` : "Turnaround unavailable"}</span></td><td><span className="processor-badge">{item.processor || "—"}</span></td><td><ChevronRight size={17} /></td></tr>)}</tbody></table></div>
+      <tbody>{props.items.map((item) => <tr key={item.id} onClick={() => props.open(item.id)}><td><strong>{item.reference_number}</strong><span>Filed {formatDate(item.date_filed)}</span></td><td><strong>{item.project_name}</strong><span>{item.applicant || item.developer || item.owner || "Applicant not recorded"}</span></td><td><span className="type-badge">{item.issuance_type}</span></td><td>{item.location || "—"}</td><td><strong>{formatDate(item.date_issued)}</strong><span>{item.issuance_type === "Temporary License to Sell" ? `Expires ${formatDate(item.expiry_date)}` : daysBetween(item.date_filed, item.date_issued) !== null ? `${daysBetween(item.date_filed, item.date_issued)} days` : "Turnaround unavailable"}</span></td><td><span className="processor-badge">{item.processor || "—"}</span></td><td><ChevronRight size={17} /></td></tr>)}</tbody></table></div>
     {!props.loading && !props.items.length && <div className="empty-state"><Search /><h3>No matching issuances</h3><p>Try clearing one or more search filters.</p></div>}
     {props.loading && <div className="empty-state"><div className="loader" /><p>Loading issuance records…</p></div>}
   </section>;
@@ -302,6 +302,7 @@ function DetailDrawer({ item, profile, canEdit, close, edit, remove }: { item: I
     <div className="drawer-actions">{canEdit && <button className="primary" onClick={edit}><Pencil size={15} /> Edit record</button>}{profile.role === "admin" && <button className="danger-button" onClick={remove}><Trash2 size={15} /> Delete</button>}</div>
     <div className="issuance-hero"><span>{item.issuance_type}</span><h3>{item.project_name}</h3><p><MapPin size={14} /> {item.location || "Location not recorded"}</p></div>
     <div className="date-strip"><div><CalendarDays /><span>Date filed<strong>{formatDate(item.date_filed)}</strong></span></div><ChevronRight /><div><CheckCircle2 /><span>Date issued<strong>{formatDate(item.date_issued)}</strong></span></div><div className="turnaround"><strong>{turnaround ?? "—"}</strong><span>days</span></div></div>
+    {item.issuance_type === "Temporary License to Sell" && <section className="drawer-section"><h3>License validity</h3><Info icon={<Clock3 />} label="TLS expiry date" value={formatDate(item.expiry_date)} /></section>}
     <section className="drawer-section"><h3>Parties and processing</h3><Info icon={<UserRound />} label="Applicant / representative" value={item.applicant} /><Info icon={<Building2 />} label="Developer" value={item.developer} /><Info icon={<UsersRound />} label="Owner" value={item.owner} /><Info icon={<ReceiptText />} label="Official receipt" value={item.or_number} /><Info icon={<BarChart3 />} label="Processor" value={item.processor} /></section>
     {item.remarks && <section className="drawer-section"><h3>Remarks</h3><p className="remarks-box">{item.remarks}</p></section>}
     {extraDetails.length > 0 && <section className="drawer-section"><h3>Source details</h3><dl className="source-details">{extraDetails.map(([label, value]) => <div key={label}><dt>{label}</dt><dd>{value}</dd></div>)}</dl></section>}
@@ -318,6 +319,7 @@ function IssuanceForm({ current, initialType, issuances, users, profile, close, 
   const [form, setForm] = useState<IssuanceInput>(current ? {
     reference_number: current.reference_number, issuance_type: current.issuance_type, source_sheet: current.source_sheet,
     source_row: current.source_row, date_filed: isIsoDate(current.date_filed) ? current.date_filed : "", date_issued: isIsoDate(current.date_issued) ? current.date_issued : "",
+    expiry_date: isIsoDate(current.expiry_date) ? current.expiry_date : "",
     project_name: current.project_name, location: current.location, applicant: current.applicant, developer: current.developer,
     owner: current.owner, processor: current.processor, or_number: current.or_number, remarks: current.remarks,
     assigned_to: current.assigned_to, details: current.details,
@@ -328,6 +330,7 @@ function IssuanceForm({ current, initialType, issuances, users, profile, close, 
   const isRemc = form.issuance_type === "REMC";
   const isAdvertisementApproval = form.issuance_type === "Advertisement Approval";
   const isCertificateOfRegistration = form.issuance_type === "Certificate of Registration";
+  const isTemporaryLicenseToSell = form.issuance_type === "Temporary License to Sell";
   const remcDecisionNumberPlaceholder = nextRemcDecisionNumber(issuances, form.date_issued);
   const advertisementApprovalPlaceholder = nextAdvertisementApprovalNumber(issuances, form.date_issued);
   const submit = async (event: React.FormEvent) => {
@@ -335,6 +338,10 @@ function IssuanceForm({ current, initialType, issuances, users, profile, close, 
     const referenceNumber = isRemc ? normalizeRemcDecisionNumber(form.reference_number) : form.reference_number.trim();
     if (isRemc && !remcDecisionNumberPattern.test(referenceNumber)) {
       fail("REMC Decision Number must use REMC-YYYY-NUMBER, for example REMC-2026-118.");
+      return;
+    }
+    if (isTemporaryLicenseToSell && (!isIsoDate(form.expiry_date) || form.expiry_date < form.date_issued)) {
+      fail("TLS expiry date must be on or after the date issued.");
       return;
     }
     // Give immediate feedback from the local snapshot. The transaction in
@@ -358,7 +365,7 @@ function IssuanceForm({ current, initialType, issuances, users, profile, close, 
       Owner: form.owner,
       Processor: form.processor,
     } : form.details;
-    const payload = { ...form, reference_number: referenceNumber, details };
+    const payload = { ...form, reference_number: referenceNumber, expiry_date: isTemporaryLicenseToSell ? form.expiry_date : "", details };
     setSaving(true);
     try {
       if (current) { await updateIssuance(current.id, payload, profile); saved(current.id); }
@@ -373,6 +380,7 @@ function IssuanceForm({ current, initialType, issuances, users, profile, close, 
       <label>{isRemc ? "Decision number" : isAdvertisementApproval ? "Advertisement approval number" : "Reference / decision no."}<input required value={form.reference_number} onChange={(event) => set("reference_number", event.target.value)} onBlur={() => isRemc && set("reference_number", normalizeRemcDecisionNumber(form.reference_number))} pattern={isRemc ? "REMC-[0-9]{4}-[0-9]+[A-Z]?" : undefined} title={isRemc ? "Use REMC-YYYY-NUMBER, with an optional letter suffix." : undefined} placeholder={isRemc ? remcDecisionNumberPlaceholder : isAdvertisementApproval ? advertisementApprovalPlaceholder : undefined} />{isRemc ? <small className="field-help">Suggested next: {remcDecisionNumberPlaceholder}. Confirm before saving.</small> : isAdvertisementApproval ? <small className="field-help">Suggested next: {advertisementApprovalPlaceholder}. Confirm before saving.</small> : null}</label>
       <label>Date filed<input type="date" value={form.date_filed} onChange={(event) => set("date_filed", event.target.value)} /></label>
       <label>Date issued<input type="date" required value={form.date_issued} onChange={(event) => set("date_issued", event.target.value)} /></label>
+      {isTemporaryLicenseToSell && <label>Expiry date<input type="date" required min={form.date_issued || undefined} value={form.expiry_date} onChange={(event) => set("expiry_date", event.target.value)} /></label>}
       <label className="wide">Project / subject<input required value={form.project_name} onChange={(event) => set("project_name", event.target.value)} /></label>
       <label className="wide">Location<input value={form.location} onChange={(event) => set("location", event.target.value)} /></label>
       <label>Applicant / representative<input value={form.applicant} onChange={(event) => set("applicant", event.target.value)} /></label>

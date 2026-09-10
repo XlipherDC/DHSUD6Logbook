@@ -22,6 +22,7 @@ export type Issuance = {
   source_row: number | null;
   date_filed: string;
   date_issued: string;
+  expiry_date: string;
   project_name: string;
   location: string;
   applicant: string;
@@ -68,6 +69,7 @@ const mapIssuance = (id: string, value: Record<string, unknown>): Issuance => ({
   source_row: value.source_row === null || value.source_row === undefined ? null : Number(value.source_row),
   date_filed: textValue(value.date_filed),
   date_issued: textValue(value.date_issued),
+  expiry_date: textValue(value.expiry_date),
   project_name: textValue(value.project_name),
   location: textValue(value.location),
   applicant: textValue(value.applicant),
@@ -87,7 +89,7 @@ const demoSeed: Issuance[] = [
   {
     id: "demo-development-permit", reference_number: "DP-DEMO-001",
     issuance_type: "Development Permit", source_sheet: "Demo", source_row: null,
-    date_filed: "2026-01-12", date_issued: "2026-02-04", project_name: "Sample Heights",
+    date_filed: "2026-01-12", date_issued: "2026-02-04", expiry_date: "", project_name: "Sample Heights",
     location: "Example City", applicant: "Demo Applicant", developer: "Demo Development Corp.",
     owner: "Demo Property Owner", processor: "DM", or_number: "DEMO-1001",
     remarks: "Synthetic record for local preview only.", assigned_to: "demo-user",
@@ -97,7 +99,7 @@ const demoSeed: Issuance[] = [
   {
     id: "demo-license-to-sell", reference_number: "LS-DEMO-002",
     issuance_type: "License to Sell — Subdivision", source_sheet: "Demo", source_row: null,
-    date_filed: "2026-03-08", date_issued: "2026-03-27", project_name: "Demo Residences",
+    date_filed: "2026-03-08", date_issued: "2026-03-27", expiry_date: "", project_name: "Demo Residences",
     location: "Sample Municipality", applicant: "Example Representative", developer: "Sample Homes Inc.",
     owner: "Sample Landowner", processor: "DM", or_number: "DEMO-1002",
     remarks: "Synthetic record for local preview only.", assigned_to: "demo-user",

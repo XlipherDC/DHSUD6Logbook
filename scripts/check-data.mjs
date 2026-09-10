@@ -38,10 +38,14 @@ for (const [index, record] of records.entries()) {
       problems.push(`${record.id} has a non-surname ${field}: ${value}`);
     }
   }
-  for (const field of ["date_filed", "date_issued"]) {
+  for (const field of ["date_filed", "date_issued", "expiry_date"]) {
     if (record[field] && !/^\d{4}-\d{2}-\d{2}$/.test(record[field])) {
       problems.push(`${record.id} has an unnormalized ${field}: ${record[field]}`);
     }
+  }
+  if (record.issuance_type === "Temporary License to Sell"
+    && (!record.expiry_date || record.expiry_date < record.date_issued)) {
+    problems.push(`${record.id} has a TLS expiry date before its issuance date`);
   }
 }
 

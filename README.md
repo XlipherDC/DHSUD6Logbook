@@ -133,7 +133,7 @@ navigation work without server-side routing support from GitHub Pages.
 
 ```text
 issuances/{issuanceId}
-  reference_number, issuance_type, date_filed, date_issued
+  reference_number, issuance_type, date_filed, date_issued, expiry_date
   project_name, location, applicant, developer, owner
   processor, assigned_to, or_number, remarks
   source_sheet, source_row, details
@@ -146,6 +146,9 @@ users/{firebaseAuthUid}
 REMC Decision Numbers are normalized and validated as `REMC-YYYY-NUMBER`.
 Existing decisions may use one uppercase letter suffix, such as
 `REMC-2026-0010A`.
+
+Temporary License to Sell records use the same core fields as License to Sell
+records and require an `expiry_date` on or after `date_issued`.
 
 New and changed Reference Numbers are reserved transactionally in
 `issuance_reference_numbers`, preventing two staff members from saving the
