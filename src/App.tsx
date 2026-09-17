@@ -335,6 +335,7 @@ function IssuanceForm({ current, initialType, issuances, users, profile, close, 
   const setDetail = (field: string, value: string) => setForm((previous) => ({ ...previous, details: { ...previous.details, [field]: value } }));
   const isRemc = form.issuance_type === "REMC";
   const isAdvertisementApproval = form.issuance_type === "Advertisement Approval";
+  const isAlterationPermit = form.issuance_type === "Alteration Permit";
   const isCertificateOfRegistration = form.issuance_type === "Certificate of Registration";
   const isTemporaryLicenseToSell = form.issuance_type === "Temporary License to Sell";
   const tlsExpiryDate = isTemporaryLicenseToSell ? oneCalendarYearAfter(form.date_issued) : "";
@@ -390,6 +391,7 @@ function IssuanceForm({ current, initialType, issuances, users, profile, close, 
       {isTemporaryLicenseToSell && <label>Expiry date<input type="date" readOnly value={tlsExpiryDate} /><small className="field-help">Automatically set to one calendar year after the date issued.</small></label>}
       <label className="wide">Project / subject<input required value={form.project_name} onChange={(event) => set("project_name", event.target.value)} /></label>
       <label className="wide">Location<input value={form.location} onChange={(event) => set("location", event.target.value)} /></label>
+      {isAlterationPermit && <label>Altered Area (Sqm)<input type="number" inputMode="decimal" min="0" step="any" value={form.details["Altered Area (Sqm)"] || ""} onChange={(event) => setDetail("Altered Area (Sqm)", event.target.value)} /></label>}
       <label>Applicant / representative<input value={form.applicant} onChange={(event) => set("applicant", event.target.value)} /></label>
       <label>Developer<input value={form.developer} onChange={(event) => set("developer", event.target.value)} /></label>
       <label>Owner<input value={form.owner} onChange={(event) => set("owner", event.target.value)} /></label>
