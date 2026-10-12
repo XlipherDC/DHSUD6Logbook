@@ -2,14 +2,15 @@ import { useState } from "react";
 import type { Issuance } from "./data";
 
 const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-const colors = ["#247cad", "#398568", "#b68019", "#7c6cae", "#ce604b", "#388b95", "#b54f87", "#737d31", "#4858a8", "#915a37", "#636b78", "#9354b2"];
+// Soft, vibrant hues add warmth without neon glare; labels carry the exact counts.
+const colors = ["#4B9FE1", "#45B99C", "#EDB74F", "#9A83D5", "#F08075", "#4DBBCB", "#E680AE", "#A0BD5A", "#788DE3", "#E7A167", "#769FAF", "#BA7FC9"];
 
 // Use the directory order, not monthly volume, to keep a type's color consistent.
 export function issuanceColor(type: string, typeOrder: string[]) {
   const index = typeOrder.indexOf(type);
   if (index >= 0) return colors[index % colors.length];
   const hash = Array.from(type).reduce((value, character) => (value * 31 + character.charCodeAt(0)) >>> 0, 0);
-  return `hsl(${hash % 360} 45% 42%)`;
+  return `hsl(${hash % 360} 58% 62%)`;
 }
 
 export function MonthlyIssuanceChart({ issuances, year, typeOrder }: { issuances: Issuance[]; year: string; typeOrder: string[] }) {
