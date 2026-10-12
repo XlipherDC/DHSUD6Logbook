@@ -151,6 +151,21 @@ Temporary License to Sell records use the same core fields as License to Sell
 records. Their `expiry_date` is automatically set to one calendar year after
 `date_issued`.
 
+Conditional License to Sell (CLS) uses the same core fields, with a required
+user-entered `expiry_date` on or after `date_issued`. Total escrow and cumulative
+payments are saved as integer `escrow_total_centavos` and `escrow_paid_centavos`.
+Payment must be at least 25% (rounded up to the next centavo) and no more than
+100% of escrow. The form, record details, and CSV export calculate the minimum,
+actual paid percentage, remaining balance, and remaining percentage.
+
+CLS expiry warnings appear on the dashboard, register, and record details only
+when the expiry date has passed in Asia/Manila and an unpaid balance remains.
+The license is valid through the expiry date; fully paid records do not trigger
+this combined warning. Existing TLS automatic expiry behavior is unchanged.
+Run `npm test` for escrow and expiry boundary tests. Deploy `firestore.rules`
+alongside this feature (`npm run firebase -- deploy --only firestore:rules`);
+GitHub Pages deployment does not deploy database rules.
+
 New and changed Reference Numbers are reserved transactionally in
 `issuance_reference_numbers`, preventing two staff members from saving the
 same number concurrently. Three duplicate groups inherited from the source

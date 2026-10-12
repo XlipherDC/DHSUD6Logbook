@@ -3,6 +3,7 @@ import {
 } from "firebase/firestore";
 import { db, demoMode, publicDataMode } from "./firebase";
 import publicSeed from "./seed/issuances.public.json";
+import { validateConditionalLicense } from "./conditionalLicense";
 
 export type Role = "admin" | "processor" | "viewer";
 export type Identity = { uid: string; email: string; displayName: string };
@@ -23,6 +24,8 @@ export type Issuance = {
   date_filed: string;
   date_issued: string;
   expiry_date: string;
+  escrow_total_centavos?: number;
+  escrow_paid_centavos?: number;
   project_name: string;
   location: string;
   applicant: string;
@@ -70,6 +73,8 @@ const mapIssuance = (id: string, value: Record<string, unknown>): Issuance => ({
   date_filed: textValue(value.date_filed),
   date_issued: textValue(value.date_issued),
   expiry_date: textValue(value.expiry_date),
+  escrow_total_centavos: typeof value.escrow_total_centavos === "number" ? value.escrow_total_centavos : undefined,
+  escrow_paid_centavos: typeof value.escrow_paid_centavos === "number" ? value.escrow_paid_centavos : undefined,
   project_name: textValue(value.project_name),
   location: textValue(value.location),
   applicant: textValue(value.applicant),
@@ -180,6 +185,8 @@ export function subscribeUsers(next: (profiles: Profile[]) => void, fail: (error
 }
 
 export async function createIssuance(payload: IssuanceInput, actor: Profile) {
+  const clsError = validateConditionalLicense(payload);
+  if (clsError) throw new Error(clsError);
   if (demoMode) {
     if (demoRecords.some((item) => canonicalReferenceNumber(item.reference_number) === canonicalReferenceNumber(payload.reference_number))) {
       throw duplicateReferenceError(payload.reference_number);
@@ -215,6 +222,8 @@ export async function createIssuance(payload: IssuanceInput, actor: Profile) {
 }
 
 export async function updateIssuance(id: string, payload: IssuanceInput, actor: Profile) {
+  const clsError = validateConditionalLicense(payload);
+  if (clsError) throw new Error(clsError);
   if (demoMode) {
     if (demoRecords.some((item) => item.id !== id && canonicalReferenceNumber(item.reference_number) === canonicalReferenceNumber(payload.reference_number))) {
       throw duplicateReferenceError(payload.reference_number);

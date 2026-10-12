@@ -3,7 +3,7 @@ import type { Issuance } from "./data";
 
 const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 // Soft, vibrant hues add warmth without neon glare; labels carry the exact counts.
-const colors = ["#4B9FE1", "#45B99C", "#EDB74F", "#9A83D5", "#F08075", "#4DBBCB", "#E680AE", "#A0BD5A", "#788DE3", "#E7A167", "#769FAF", "#BA7FC9"];
+const colors = ["#4B9FE1", "#45B99C", "#EDB74F", "#9A83D5", "#F08075", "#4DBBCB", "#E680AE", "#A0BD5A", "#788DE3", "#E7A167", "#769FAF", "#BA7FC9", "#68B77A"];
 
 // Use the directory order, not monthly volume, to keep a type's color consistent.
 export function issuanceColor(type: string, typeOrder: string[]) {

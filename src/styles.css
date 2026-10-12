@@ -215,6 +215,16 @@ td:last-child { width: 30px; padding-left: 0; color: #a1aeb7; }
 .form-grid label { display: grid; gap: 6px; color: #596f82; font-size: 9px; font-weight: 700; }
 .form-grid .field-help { color: #7a8d9d; font-size: 8px; font-weight: 500; }
 .form-grid .wide { grid-column: 1 / -1; }
+.escrow-summary { padding: 16px; border: 1px solid #cbdfe9; border-radius: 9px; background: #f5fafc; }
+.escrow-summary h3 { margin: 0 0 12px; color: #233a4f; font-size: 13px; }
+.escrow-summary dl { margin: 0 0 12px; display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 190px), 1fr)); gap: 14px; }
+.escrow-summary dt { color: #596f82; font-size: 11px; }
+.escrow-summary dd { margin: 4px 0 0; color: #253e52; font-size: 15px; font-weight: 700; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.escrow-summary p, .escrow-summary small { color: #596f82; font-size: 11px; }
+.cls-warning, .escrow-summary .cls-warning, td .cls-warning { color: #963e19; background: #fff0dc; border-radius: 5px; padding: 7px 9px; font-size: 11px; font-weight: 600; }
+.escrow-summary .cls-paid { color: #216747; font-weight: 700; }
+.cls-dashboard-warning { width: 100%; margin-bottom: 16px; border: 1px solid #e7bd7e; border-radius: 8px; padding: 12px 16px; background: #fff0dc; color: #963e19; text-align: left; font-size: 13px; }
+.cls-dashboard-warning:focus-visible { outline: 2px solid #963e19; outline-offset: 3px; }
 .form-grid input, .form-grid select, .form-grid textarea { width: 100%; padding: 9px 10px; border: 1px solid #d3dde4; border-radius: 7px; outline: 0; color: #253e52; background: #fff; font-size: 11px; }
 .form-grid input:focus, .form-grid select:focus, .form-grid textarea:focus { border-color: #2f7dab; box-shadow: 0 0 0 3px #2f7dab17; }
 .form-grid textarea { resize: vertical; }

@@ -10,13 +10,15 @@ import {
 } from "./data";
 import { demoMode, publicDataMode } from "./firebase";
 import { issuanceColor, MonthlyIssuanceChart } from "./MonthlyIssuanceChart";
+import { CLS_TYPE, clsOverdue, escrowSummary, parsePesos, pesosInput, validateConditionalLicense } from "./conditionalLicense";
+import { ConditionalEscrowSummary, useManilaDate } from "./ClsEscrow";
 
 // This ordered list drives the type selector, directory cards, and hash routes.
 const issuanceTypes = [
   "Development Permit", "Alteration Permit", "Certificate of Registration",
   "License to Sell — Subdivision", "License to Sell — Condominium",
   "Temporary License to Sell", "Certificate of Non-Coverage", "License to Sell Amendment", "REMC",
-  "Advertisement Approval", "Change of Name / Owner / Developer", "Mortgage Clearance",
+  "Advertisement Approval", "Change of Name / Owner / Developer", "Mortgage Clearance", CLS_TYPE,
 ];
 type View = "dashboard" | "all" | "mine" | "types" | "type";
 type Route = { view: View; type: string };
@@ -199,6 +201,8 @@ export default function App({ identity }: { identity: Identity }) {
 // Dashboard calculations are derived from the current issuance snapshot, so
 // totals and charts update automatically when Firestore data changes.
 function Dashboard({ issuances, mineCount, open, openType }: { issuances: Issuance[]; mineCount: number; open: (id: string) => void; openType: (type: string) => void }) {
+  const todayInManila = useManilaDate();
+  const overdueClsCount = issuances.filter((item) => clsOverdue(item, todayInManila)).length;
   const today = new Date();
   const currentYear = String(today.getFullYear());
   const currentMonth = `${currentYear}-${String(today.getMonth() + 1).padStart(2, "0")}`;
@@ -209,6 +213,7 @@ function Dashboard({ issuances, mineCount, open, openType }: { issuances: Issuan
   const maxType = byType[0]?.[1] || 1;
   const recent = [...issuances].sort((a, b) => b.date_issued.localeCompare(a.date_issued)).slice(0, 6);
   return <>
+    {overdueClsCount > 0 && <button className="cls-dashboard-warning" onClick={() => openType(CLS_TYPE)}>{overdueClsCount} CLS {overdueClsCount === 1 ? "record has" : "records have"} expired with an unpaid escrow balance. View CLS applications.</button>}
     <section className="stats-grid">
       <Stat icon={<Files />} tone="blue" label="Total issuances" value={issuances.length} note="All migrated records" />
       <Stat icon={<CheckCircle2 />} tone="green" label={`Issued in ${currentYear}`} value={issuances.filter((item) => item.date_issued.startsWith(currentYear)).length} note={`${issuances.filter((item) => item.date_issued.startsWith(currentMonth)).length} this month`} />
@@ -271,10 +276,16 @@ type RegistryProps = {
 // Registry owns table filtering output and exports only the currently visible
 // result set, which makes filtered CSV downloads predictable for staff.
 function Registry(props: RegistryProps) {
+  const today = useManilaDate();
   const exportCsv = () => {
     const fields: Array<keyof Issuance> = ["reference_number", "issuance_type", "date_filed", "date_issued", "expiry_date", "project_name", "location", "applicant", "developer", "owner", "processor", "or_number", "remarks"];
     const escape = (value: unknown) => `"${String(value ?? "").replace(/"/g, '""')}"`;
-    const csv = [fields.map(escape).join(","), ...props.items.map((item) => fields.map((field) => escape(item[field])).join(","))].join("\r\n");
+    const escrowHeaders = ["Total escrow (PHP)", "Minimum payment 25% (PHP)", "Amount paid (PHP)", "Paid (%)", "Remaining balance (PHP)", "Remaining (%)"];
+    const csv = [[...fields, ...escrowHeaders].map(escape).join(","), ...props.items.map((item) => {
+      const escrow = item.issuance_type === CLS_TYPE ? escrowSummary(item.escrow_total_centavos, item.escrow_paid_centavos) : null;
+      const values = escrow ? [pesosInput(escrow.total), pesosInput(escrow.minimum), pesosInput(escrow.paid), escrow.paidPercent.toFixed(2), pesosInput(escrow.balance), escrow.balancePercent.toFixed(2)] : Array(6).fill("");
+      return [...fields.map((field) => item[field]), ...values].map(escape).join(",");
+    })].join("\r\n");
     const link = document.createElement("a");
     link.href = URL.createObjectURL(new Blob(["\ufeff", csv], { type: "text/csv;charset=utf-8" }));
     link.download = `dhsud-issuances-${new Date().toISOString().slice(0, 10)}.csv`;
@@ -290,7 +301,7 @@ function Registry(props: RegistryProps) {
       <select aria-label="Filter by processor" value={props.processorFilter} onChange={(event) => props.setProcessorFilter(event.target.value)}><option>All processors</option>{props.processors.map((processor) => <option key={processor}>{processor}</option>)}</select>
     </div>
     <div className="table-wrap"><table><thead><tr><th>Reference</th><th>Project / applicant</th><th>Type</th><th>Location</th><th>Date issued</th><th>Processor</th><th /></tr></thead>
-      <tbody>{props.items.map((item) => <tr key={item.id} onClick={() => props.open(item.id)}><td><strong>{item.reference_number}</strong><span>Filed {formatDate(item.date_filed)}</span></td><td><strong>{item.project_name}</strong><span>{item.applicant || item.developer || item.owner || "Applicant not recorded"}</span></td><td><span className="type-badge">{item.issuance_type}</span></td><td>{item.location || "—"}</td><td><strong>{formatDate(item.date_issued)}</strong><span>{item.issuance_type === "Temporary License to Sell" ? `Expires ${formatDate(item.expiry_date)}` : daysBetween(item.date_filed, item.date_issued) !== null ? `${daysBetween(item.date_filed, item.date_issued)} days` : "Turnaround unavailable"}</span></td><td><span className="processor-badge">{item.processor || "—"}</span></td><td><ChevronRight size={17} /></td></tr>)}</tbody></table></div>
+      <tbody>{props.items.map((item) => <tr key={item.id} onClick={() => props.open(item.id)}><td><strong>{item.reference_number}</strong><span>Filed {formatDate(item.date_filed)}</span></td><td><strong>{item.project_name}</strong><span>{item.applicant || item.developer || item.owner || "Applicant not recorded"}</span></td><td><span className="type-badge">{item.issuance_type}</span></td><td>{item.location || "—"}</td><td><strong>{formatDate(item.date_issued)}</strong><span>{item.issuance_type === "Temporary License to Sell" || item.issuance_type === CLS_TYPE ? `Expires ${formatDate(item.expiry_date)}` : daysBetween(item.date_filed, item.date_issued) !== null ? `${daysBetween(item.date_filed, item.date_issued)} days` : "Turnaround unavailable"}</span>{clsOverdue(item, today) && <span className="cls-warning">CLS expired · Unpaid balance</span>}</td><td><span className="processor-badge">{item.processor || "—"}</span></td><td><ChevronRight size={17} /></td></tr>)}</tbody></table></div>
     {!props.loading && !props.items.length && <div className="empty-state"><Search /><h3>No matching issuances</h3><p>Try clearing one or more search filters.</p></div>}
     {props.loading && <div className="empty-state"><div className="loader" /><p>Loading issuance records…</p></div>}
   </section>;
@@ -307,6 +318,7 @@ function DetailDrawer({ item, profile, canEdit, close, edit, remove }: { item: I
     <div className="issuance-hero"><span>{item.issuance_type}</span><h3>{item.project_name}</h3><p><MapPin size={14} /> {item.location || "Location not recorded"}</p></div>
     <div className="date-strip"><div><CalendarDays /><span>Date filed<strong>{formatDate(item.date_filed)}</strong></span></div><ChevronRight /><div><CheckCircle2 /><span>Date issued<strong>{formatDate(item.date_issued)}</strong></span></div><div className="turnaround"><strong>{turnaround ?? "—"}</strong><span>days</span></div></div>
     {item.issuance_type === "Temporary License to Sell" && <section className="drawer-section"><h3>License validity</h3><Info icon={<Clock3 />} label="TLS expiry date" value={formatDate(item.expiry_date)} /></section>}
+    {item.issuance_type === CLS_TYPE && <section className="drawer-section"><h3>License validity</h3><Info icon={<Clock3 />} label="CLS expiry date" value={formatDate(item.expiry_date)} /><ConditionalEscrowSummary record={item} /></section>}
     <section className="drawer-section"><h3>Parties and processing</h3><Info icon={<UserRound />} label="Applicant / representative" value={item.applicant} /><Info icon={<Building2 />} label="Developer" value={item.developer} /><Info icon={<UsersRound />} label="Owner" value={item.owner} /><Info icon={<ReceiptText />} label="Official receipt" value={item.or_number} /><Info icon={<BarChart3 />} label="Processor" value={item.processor} /></section>
     {item.remarks && <section className="drawer-section"><h3>Remarks</h3><p className="remarks-box">{item.remarks}</p></section>}
     {extraDetails.length > 0 && <section className="drawer-section"><h3>Source details</h3><dl className="source-details">{extraDetails.map(([label, value]) => <div key={label}><dt>{label}</dt><dd>{value}</dd></div>)}</dl></section>}
@@ -329,6 +341,8 @@ function IssuanceForm({ current, initialType, issuances, users, profile, close, 
     assigned_to: current.assigned_to, details: current.details,
   } : emptyRecord(initialType));
   const [saving, setSaving] = useState(false);
+  const [escrowTotal, setEscrowTotal] = useState(() => pesosInput(current?.escrow_total_centavos));
+  const [escrowPaid, setEscrowPaid] = useState(() => pesosInput(current?.escrow_paid_centavos));
   const set = (field: keyof IssuanceInput, value: string) => setForm((previous) => ({ ...previous, [field]: value }));
   const setDetail = (field: string, value: string) => setForm((previous) => ({ ...previous, details: { ...previous.details, [field]: value } }));
   const isRemc = form.issuance_type === "REMC";
@@ -336,6 +350,9 @@ function IssuanceForm({ current, initialType, issuances, users, profile, close, 
   const isAlterationPermit = form.issuance_type === "Alteration Permit";
   const isCertificateOfRegistration = form.issuance_type === "Certificate of Registration";
   const isTemporaryLicenseToSell = form.issuance_type === "Temporary License to Sell";
+  const isCls = form.issuance_type === CLS_TYPE;
+  const clsRecord = { ...form, escrow_total_centavos: parsePesos(escrowTotal) ?? undefined, escrow_paid_centavos: parsePesos(escrowPaid) ?? undefined };
+  const minimumPayment = clsRecord.escrow_total_centavos ? pesosInput(Math.ceil(clsRecord.escrow_total_centavos / 4)) : "0.01";
   const tlsExpiryDate = isTemporaryLicenseToSell ? oneCalendarYearAfter(form.date_issued) : "";
   const remcDecisionNumberPlaceholder = nextRemcDecisionNumber(issuances, form.date_issued);
   const advertisementApprovalPlaceholder = nextAdvertisementApprovalNumber(issuances, form.date_issued);
@@ -371,7 +388,9 @@ function IssuanceForm({ current, initialType, issuances, users, profile, close, 
       Owner: form.owner,
       Processor: form.processor,
     } : form.details;
-    const payload = { ...form, reference_number: referenceNumber, expiry_date: tlsExpiryDate, details };
+    const payload = { ...(isCls ? clsRecord : form), reference_number: referenceNumber, expiry_date: isCls ? form.expiry_date : tlsExpiryDate, details };
+    const clsError = validateConditionalLicense(payload);
+    if (clsError) { fail(clsError); return; }
     setSaving(true);
     try {
       if (current) { await updateIssuance(current.id, payload, profile); saved(current.id); }
@@ -387,6 +406,12 @@ function IssuanceForm({ current, initialType, issuances, users, profile, close, 
       <label>Date filed<input type="date" value={form.date_filed} onChange={(event) => set("date_filed", event.target.value)} /></label>
       <label>Date issued<input type="date" required value={form.date_issued} onChange={(event) => set("date_issued", event.target.value)} /></label>
       {isTemporaryLicenseToSell && <label>Expiry date<input type="date" readOnly value={tlsExpiryDate} /><small className="field-help">Automatically set to one calendar year after the date issued.</small></label>}
+      {isCls && <>
+        <label>CLS expiry date<input type="date" required min={form.date_issued || undefined} value={form.expiry_date} onChange={(event) => set("expiry_date", event.target.value)} /><small className="field-help">Enter the approved expiry date. Valid through this date (Philippine time).</small></label>
+        <label>Total Escrow Amount (PHP)<input type="number" inputMode="decimal" required min="0.01" step="0.01" value={escrowTotal} onChange={(event) => setEscrowTotal(event.target.value)} /></label>
+        <label>Total Amount Paid (PHP)<input type="number" inputMode="decimal" required min={minimumPayment} max={clsRecord.escrow_total_centavos ? pesosInput(clsRecord.escrow_total_centavos) : undefined} step="0.01" value={escrowPaid} onChange={(event) => setEscrowPaid(event.target.value)} /><small className="field-help">Cumulative amount paid, at least 25% and no more than the escrow total.</small></label>
+        <ConditionalEscrowSummary record={clsRecord} />
+      </>}
       <label className="wide">Project / subject<input required value={form.project_name} onChange={(event) => set("project_name", event.target.value)} /></label>
       <label className="wide">Location<input value={form.location} onChange={(event) => set("location", event.target.value)} /></label>
       {isAlterationPermit && <label>Altered Area (Sqm)<input type="number" inputMode="decimal" min="0" step="any" value={form.details["Altered Area (Sqm)"] || ""} onChange={(event) => setDetail("Altered Area (Sqm)", event.target.value)} /></label>}
