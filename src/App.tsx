@@ -9,6 +9,7 @@ import {
   subscribeIssuances, subscribeProfile, subscribeUsers, updateIssuance,
 } from "./data";
 import { demoMode, publicDataMode } from "./firebase";
+import { issuanceColor, MonthlyIssuanceChart } from "./MonthlyIssuanceChart";
 
 // This ordered list drives the type selector, directory cards, and hash routes.
 const issuanceTypes = [
@@ -35,7 +36,6 @@ const routeFromHash = (): Route => {
   if (hash === "types") return { view: "types", type: "" };
   return { view: "dashboard", type: "" };
 };
-const monthNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
 // New forms start with safe defaults while imported fields retain their source
 // metadata when an existing issuance is edited.
@@ -205,8 +205,6 @@ function Dashboard({ issuances, mineCount, open, openType }: { issuances: Issuan
   const durations = issuances.map((item) => daysBetween(item.date_filed, item.date_issued)).filter((value): value is number => value !== null);
   const average = durations.length ? Math.round(durations.reduce((sum, value) => sum + value, 0) / durations.length) : 0;
   const latestYear = issuances.map((item) => item.date_issued.slice(0, 4)).filter((value) => /^\d{4}$/.test(value)).sort().at(-1) || currentYear;
-  const monthly = monthNames.map((label, index) => ({ label, count: issuances.filter((item) => item.date_issued.startsWith(`${latestYear}-${String(index + 1).padStart(2, "0")}`)).length }));
-  const maxMonth = Math.max(...monthly.map((item) => item.count), 1);
   const byType = Object.entries(issuances.reduce<Record<string, number>>((result, item) => ({ ...result, [item.issuance_type]: (result[item.issuance_type] || 0) + 1 }), {})).sort((a, b) => b[1] - a[1]);
   const maxType = byType[0]?.[1] || 1;
   const recent = [...issuances].sort((a, b) => b.date_issued.localeCompare(a.date_issued)).slice(0, 6);
@@ -218,11 +216,11 @@ function Dashboard({ issuances, mineCount, open, openType }: { issuances: Issuan
       <Stat icon={<UserRound />} tone="violet" label="My issuances" value={mineCount} note="Assigned or processor match" />
     </section>
     <section className="dashboard-grid">
-      <article className="panel trend-panel"><PanelHead title="Issuances by month" copy={`${latestYear} issuance activity`} />
-        <div className="bar-chart" aria-label={`Monthly issuances for ${latestYear}`}>{monthly.map((item) => <div className="bar-column" key={item.label}><span>{item.count || ""}</span><div style={{ height: `${Math.max(item.count ? 8 : 2, item.count / maxMonth * 100)}%` }} /><small>{item.label}</small></div>)}</div>
+      <article className="panel trend-panel"><PanelHead title="Issuances by month" copy={`${latestYear} issuance activity by type`} />
+        <MonthlyIssuanceChart issuances={issuances} year={latestYear} typeOrder={issuanceTypes} />
       </article>
       <article className="panel type-panel"><PanelHead title="Issuance mix" copy="Records by approval category" />
-        <div className="type-list">{byType.slice(0, 6).map(([type, count], index) => <button className="type-row" key={type} onClick={() => openType(type)}><div><span className={`type-dot dot-${index}`} /> <strong>{type}</strong><b>{count}</b></div><div className="type-track"><span className={`fill-${index}`} style={{ width: `${count / maxType * 100}%` }} /></div></button>)}</div>
+        <div className="type-list">{byType.slice(0, 6).map(([type, count]) => <button className="type-row" key={type} onClick={() => openType(type)}><div><span className="type-dot" style={{ backgroundColor: issuanceColor(type, issuanceTypes) }} /> <strong>{type}</strong><b>{count}</b></div><div className="type-track"><span style={{ width: `${count / maxType * 100}%`, backgroundColor: issuanceColor(type, issuanceTypes) }} /></div></button>)}</div>
       </article>
       <article className="panel recent-panel"><PanelHead title="Recently issued" copy="Latest approved application records" />
         <div className="recent-list">{recent.map((item) => <button key={item.id} onClick={() => open(item.id)}><span className="doc-icon"><FileCheck2 /></span><span className="recent-main"><strong>{item.project_name}</strong><small>{item.reference_number} · {item.issuance_type}</small></span><span className="recent-date">{formatDate(item.date_issued)}</span><ChevronRight /></button>)}</div>
