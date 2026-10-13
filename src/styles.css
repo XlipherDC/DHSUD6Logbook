@@ -206,6 +206,25 @@ td:last-child { width: 30px; padding-left: 0; color: #a1aeb7; }
 .record-foot { padding: 5px 20px 25px; display: flex; justify-content: space-between; color: #8c99a3; font-size: 8px; }
 
 .modal-layer { display: grid; place-items: center; padding: 25px; }
+.record-tabs { display: flex; gap: 10px; padding: 12px 20px; border-bottom: 1px solid #dce5eb; }
+.record-tabs button { padding: 8px 16px; border: 1px solid #cbdfe9; border-radius: 6px; color: #264961; background: #fff; }
+.record-tabs button[aria-selected="true"] { background: #e7f1f7; border-color: #155f91; font-weight: 700; }
+.archive-notice { margin: 12px 20px; padding: 12px; border-radius: 6px; background: #fff0dc; color: #753e19; font-size: 12px; }
+.history-panel { font-size: 12px; line-height: 1.6; }
+.history-list { list-style: none; margin: 0; padding: 0; }
+.history-list > li { padding: 16px 0; border-top: 1px solid #dce5eb; }
+.history-list h4 { margin: 0; font-size: 14px; }
+.history-list dl { margin: 10px 0; }
+.history-list dt { font-weight: 700; text-transform: capitalize; }
+.history-list dd { margin: 0 0 10px; white-space: pre-wrap; overflow-wrap: anywhere; }
+.history-list del { color: #80504b; text-decoration: none; }
+.history-list ins { color: #216747; text-decoration: none; }
+.history-reason { white-space: pre-wrap; }
+.history-baseline, .history-review { margin-top: 12px; padding: 12px; background: #f1f6fa; border-radius: 6px; }
+.history-review label { display: flex; gap: 10px; padding: 10px 0; border-top: 1px solid #cbdfe9; }
+.history-review label span span { display: block; overflow-wrap: anywhere; white-space: pre-wrap; }
+.history-review input { flex-shrink: 0; width: 18px; height: 18px; }
+.history-review strong { text-transform: capitalize; }
 .modal { position: relative; width: min(760px, 100%); max-height: 94vh; overflow-y: auto; border-radius: 13px; background: #fff; box-shadow: 0 24px 65px #07172750; animation: modal-in .18s ease-out; }
 @keyframes modal-in { from { transform: translateY(8px); opacity: .7; } }
 .modal-head { padding: 20px 22px; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #e2e8ec; }

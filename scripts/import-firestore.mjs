@@ -1,7 +1,7 @@
 import { readFile } from "node:fs/promises";
 import { initializeApp } from "firebase/app";
 import { getAuth, signInWithEmailAndPassword, signOut } from "firebase/auth";
-import { doc, getFirestore, serverTimestamp, writeBatch } from "firebase/firestore";
+import { collection, doc, getDoc, getFirestore, runTransaction, serverTimestamp } from "firebase/firestore";
 
 const value = (name) => process.env[name] || process.env[`VITE_${name}`] || "";
 const config = {
@@ -34,25 +34,34 @@ if (!dryRun) {
   const database = getFirestore(app);
   await signInWithEmailAndPassword(auth, email, password);
 
-  // Firestore permits at most 500 writes per batch. Groups of 400 leave
-  // operational headroom while keeping progress reporting useful.
-  for (let offset = 0; offset < records.length; offset += 400) {
-    const batch = writeBatch(database);
-    for (const record of records.slice(offset, offset + 400)) {
-      const { id, ...payload } = record;
-      // Deterministic IDs make retries idempotent; merge preserves fields that
-      // may have been added by later application versions.
-      batch.set(doc(database, "issuances", id), {
-        ...payload,
-        created_at: serverTimestamp(),
-        updated_at: serverTimestamp(),
-        updated_by: "Spreadsheet migration",
-      }, { merge: true });
-    }
-    await batch.commit();
-    console.log(`Imported ${Math.min(offset + 400, records.length)} / ${records.length}`);
+  const profile = await getDoc(doc(database, "users", auth.currentUser.uid));
+  if (!profile.exists() || !profile.data().active || profile.data().role !== "admin") throw new Error("An active administrator profile is required.");
+  let imported = 0;
+  let skipped = 0;
+  for (const record of records) {
+    const { id, ...payload } = record;
+    const reference = doc(database, "issuances", id);
+    const historyReference = doc(collection(reference, "history"));
+    const key = encodeURIComponent(payload.reference_number.trim().replace(/\s+/g, " ").toUpperCase()).replace(/\./g, "%2E");
+    const reservationReference = doc(database, "issuance_reference_numbers", key);
+    const created = await runTransaction(database, async (transaction) => {
+      const existing = await transaction.get(reference);
+      // Re-imports never overwrite staff changes or bypass immutable history.
+      if (existing.exists()) return false;
+      const reservation = await transaction.get(reservationReference);
+      if (reservation.exists()) throw new Error("Duplicate reference in import: " + payload.reference_number + ". Reconcile it before importing.");
+      const after = { ...payload, reference_key: key, archived: false, version: 1,
+        history_id: historyReference.id, created_at: serverTimestamp(), updated_at: serverTimestamp(), updated_by: profile.data().name };
+      transaction.set(reference, after);
+      transaction.set(historyReference, { action: "create", reason: "Spreadsheet migration", actor_id: auth.currentUser.uid,
+        actor_name: profile.data().name, at: serverTimestamp(), version: 1, before: null, after });
+      transaction.set(reservationReference, { issuance_id: id, reference_number: payload.reference_number, updated_at: serverTimestamp() });
+      return true;
+    });
+    if (created) imported++; else skipped++;
   }
+  console.log(`Imported ${imported}; skipped ${skipped} existing records.`);
   await signOut(auth);
 }
 
-console.log("Migration complete. Re-running it is safe because source rows use deterministic document IDs.");
+console.log("Migration complete. Existing document IDs are skipped; staff edits and history are preserved.");

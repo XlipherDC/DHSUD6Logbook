@@ -7,7 +7,7 @@ const targetPath = process.argv[3] || "src/seed/issuances.public.json";
 // Publishing is an explicit private-to-public transformation: the source stays
 // ignored by Git while only the sanitized snapshot is written under src/seed.
 const records = JSON.parse(await readFile(sourcePath, "utf8"));
-const sanitized = records.map(sanitizeRecord);
+const sanitized = records.filter((record) => record.archived !== true).map(sanitizeRecord);
 
 await writeFile(targetPath, `${JSON.stringify(sanitized, null, 2)}\n`, "utf8");
 console.log(`Wrote ${sanitized.length} public records to ${targetPath}.`);

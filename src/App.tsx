@@ -2,12 +2,13 @@ import { useEffect, useMemo, useState } from "react";
 import {
   BarChart3, Building2, CalendarDays, CheckCircle2, ChevronRight, Clock3,
   Download, FileCheck2, Files, Layers3, LayoutDashboard, LogIn, MapPin, Menu, Pencil,
-  Plus, ReceiptText, Search, Trash2, UserRound, UsersRound, X,
+  Plus, ReceiptText, Search, Archive, UserRound, UsersRound, X,
 } from "lucide-react";
 import {
-  canonicalReferenceNumber, createIssuance, deleteIssuance, Identity, Issuance, IssuanceInput, Profile,
+  canonicalReferenceNumber, createIssuance, archiveIssuance, restoreIssuance, Identity, Issuance, IssuanceInput, Profile,
   subscribeIssuances, subscribeProfile, subscribeUsers, updateIssuance,
 } from "./data";
+import { HistoryPanel, ArchiveDialog } from "./RecordHistoryPanel";
 import { demoMode, publicDataMode } from "./firebase";
 import { issuanceColor, MonthlyIssuanceChart } from "./MonthlyIssuanceChart";
 import { CLS_TYPE, clsOverdue, escrowSummary, parsePesos, pesosInput, validateConditionalLicense } from "./conditionalLicense";
@@ -20,7 +21,7 @@ const issuanceTypes = [
   "Temporary License to Sell", "Certificate of Non-Coverage", "License to Sell Amendment", "REMC",
   "Advertisement Approval", "Change of Name / Owner / Developer", "Mortgage Clearance", CLS_TYPE,
 ];
-type View = "dashboard" | "all" | "mine" | "types" | "type";
+type View = "dashboard" | "all" | "mine" | "types" | "type" | "archived";
 type Route = { view: View; type: string };
 
 // GitHub Pages has no server-side router, so hash routes make every dedicated
@@ -34,6 +35,7 @@ const routeFromHash = (): Route => {
     return type ? { view: "type", type } : { view: "types", type: "" };
   }
   if (hash === "issuances") return { view: "all", type: "" };
+  if (hash === "archived") return { view: "archived", type: "" };
   if (hash === "mine") return { view: "mine", type: "" };
   if (hash === "types") return { view: "types", type: "" };
   return { view: "dashboard", type: "" };
@@ -97,7 +99,7 @@ const initials = (name: string) => name.split(/\s+/).filter(Boolean).slice(0, 2)
 export default function App({ identity }: { identity: Identity }) {
   const [profile, setProfile] = useState<Profile | null | undefined>(undefined);
   const [users, setUsers] = useState<Profile[]>([]);
-  const [issuances, setIssuances] = useState<Issuance[]>([]);
+  const [allRecords, setIssuances] = useState<Issuance[]>([]);
   const [route, setRoute] = useState<Route>(routeFromHash);
   const [query, setQuery] = useState("");
   const [typeFilter, setTypeFilter] = useState("All types");
@@ -105,10 +107,15 @@ export default function App({ identity }: { identity: Identity }) {
   const [processorFilter, setProcessorFilter] = useState("All processors");
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [editing, setEditing] = useState<Issuance | "new" | null>(null);
+  const issuances = useMemo(() => allRecords.filter((item) => !item.archived), [allRecords]);
+  const archivedRecords = useMemo(() => allRecords.filter((item) => item.archived), [allRecords]);
+  const [recordAction, setRecordAction] = useState<Issuance | null>(null);
+  const [recovery, setRecovery] = useState<IssuanceInput | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [navOpen, setNavOpen] = useState(false);
-  const { view, type: selectedType } = route;
+  const { type: selectedType } = route;
+  const view = route.view === "archived" && profile?.role !== "admin" ? "all" : route.view;
 
   useEffect(() => {
     const syncRoute = () => setRoute(routeFromHash());
@@ -127,15 +134,16 @@ export default function App({ identity }: { identity: Identity }) {
     return subscribeUsers(setUsers, () => setUsers([]));
   }, [profile?.active, profile?.role]);
 
-  const selected = issuances.find((item) => item.id === selectedId) || null;
-  const years = useMemo(() => [...new Set(issuances.map((item) => item.date_issued.slice(0, 4)).filter((year) => /^\d{4}$/.test(year)))].sort().reverse(), [issuances]);
-  const processors = useMemo(() => [...new Set(issuances.map((item) => item.processor).filter(Boolean))].sort(), [issuances]);
-  const types = useMemo(() => [...new Set(issuances.map((item) => item.issuance_type).filter(Boolean))].sort(), [issuances]);
+  const selected = allRecords.find((item) => item.id === selectedId) || null;
+  const registryRecords = view === "archived" ? archivedRecords : issuances;
+  const years = useMemo(() => [...new Set(registryRecords.map((item) => item.date_issued.slice(0, 4)).filter((year) => /^\d{4}$/.test(year)))].sort().reverse(), [registryRecords]);
+  const processors = useMemo(() => [...new Set(registryRecords.map((item) => item.processor).filter(Boolean))].sort(), [registryRecords]);
+  const types = useMemo(() => [...new Set(registryRecords.map((item) => item.issuance_type).filter(Boolean))].sort(), [registryRecords]);
   const knownTypes = useMemo(() => [...new Set([...issuanceTypes, ...types])], [types]);
   const mine = (item: Issuance) => item.assigned_to === profile?.id || Boolean(profile?.processor_code && item.processor.toLowerCase() === profile.processor_code.toLowerCase());
   // Apply all registry filters in one memoized pass so dashboard state remains
   // responsive as Firestore snapshots arrive.
-  const filtered = useMemo(() => issuances.filter((item) => {
+  const filtered = useMemo(() => (view === "archived" && profile?.role === "admin" ? archivedRecords : issuances).filter((item) => {
     const haystack = [item.reference_number, item.project_name, item.location, item.applicant, item.developer, item.owner, item.processor, item.or_number, item.issuance_type].join(" ").toLowerCase();
     return (!query || haystack.includes(query.toLowerCase()))
       && (view === "type" || typeFilter === "All types" || item.issuance_type === typeFilter)
@@ -143,22 +151,22 @@ export default function App({ identity }: { identity: Identity }) {
       && (processorFilter === "All processors" || item.processor === processorFilter)
       && (view !== "mine" || mine(item))
       && (view !== "type" || item.issuance_type === selectedType);
-  }), [issuances, query, typeFilter, yearFilter, processorFilter, view, selectedType, profile]);
+  }), [issuances, archivedRecords, query, typeFilter, yearFilter, processorFilter, view, selectedType, profile]);
 
   if (profile === undefined) return <div className="loading-page"><div className="loader" /><p>Loading your workspace…</p></div>;
   if (!profile?.active) return <div className="auth-page"><div className="auth-card"><div className="auth-mark"><UserRound /></div><h1>Access not enabled</h1><p>Your sign-in is valid, but no active staff profile is attached to <strong>{identity.email}</strong>. Ask an administrator to create or activate your user record.</p></div></div>;
 
   const canEdit = profile.role === "admin" || profile.role === "processor";
-  const pageTitle = view === "dashboard" ? "Dashboard" : view === "mine" ? "My issuances" : view === "types" ? "Issuance types" : view === "type" ? selectedType : "All issuances";
-  const pageCopy = view === "dashboard" ? "Approved application monitoring at a glance" : view === "mine" ? "Records assigned to you or matching your processor code" : view === "types" ? "Browse a dedicated register for every approval category" : view === "type" ? "Dedicated issuance-type register" : "Search and manage the complete issuance registry";
+  const pageTitle = view === "archived" ? "Archived records" : view === "dashboard" ? "Dashboard" : view === "mine" ? "My issuances" : view === "types" ? "Issuance types" : view === "type" ? selectedType : "All issuances";
+  const pageCopy = view === "archived" ? "Review archived records and restore them with a reason" : view === "dashboard" ? "Approved application monitoring at a glance" : view === "mine" ? "Records assigned to you or matching your processor code" : view === "types" ? "Browse a dedicated register for every approval category" : view === "type" ? "Dedicated issuance-type register" : "Search and manage the complete issuance registry";
   const changeHash = (hash: string) => {
     if (window.location.hash === hash) setRoute(routeFromHash());
     else window.location.hash = hash;
     setNavOpen(false);
   };
-  const navigate = (next: Exclude<View, "type">) => changeHash({ dashboard: "#/", all: "#/issuances", mine: "#/mine", types: "#/types" }[next]);
+  const navigate = (next: Exclude<View, "type">) => changeHash({ dashboard: "#/", all: "#/issuances", mine: "#/mine", types: "#/types", archived: "#/archived" }[next]);
   const openType = (type: string) => changeHash(`#/types/${typeSlug(type)}`);
-  const viewTotal = view === "mine" ? issuances.filter(mine).length : view === "type" ? issuances.filter((item) => item.issuance_type === selectedType).length : issuances.length;
+  const viewTotal = view === "archived" && profile.role === "admin" ? archivedRecords.length : view === "mine" ? issuances.filter(mine).length : view === "type" ? issuances.filter((item) => item.issuance_type === selectedType).length : issuances.length;
 
   return <div className="app-shell">
     <aside className={navOpen ? "sidebar open" : "sidebar"}>
@@ -168,6 +176,7 @@ export default function App({ identity }: { identity: Identity }) {
         <button className={view === "all" ? "active" : ""} onClick={() => navigate("all")}><Files /> All issuances <em>{issuances.length}</em></button>
         <button className={view === "types" || view === "type" ? "active" : ""} onClick={() => navigate("types")}><Layers3 /> Issuance types <em>{knownTypes.length}</em></button>
         <button className={view === "mine" ? "active" : ""} onClick={() => navigate("mine")}><UserRound /> My issuances <em>{issuances.filter(mine).length}</em></button>
+        {profile.role === "admin" && <button className={view === "archived" ? "active" : ""} onClick={() => navigate("archived")}><Archive /> Archived records <em>{archivedRecords.length}</em></button>}
       </nav>
       <div className="sidebar-foot"><div className="avatar">{initials(profile.name)}</div><div><strong>{profile.name}</strong><span>{profile.role} {profile.processor_code && `· ${profile.processor_code}`}</span></div></div>
     </aside>
@@ -180,7 +189,7 @@ export default function App({ identity }: { identity: Identity }) {
           {publicDataMode && <span className="demo-badge">Public registry</span>}
           {publicDataMode && <a className="secondary portal-link" href={`${import.meta.env.BASE_URL}staff/`}><LogIn size={16} /> Staff sign in</a>}
           {demoMode && <span className="demo-badge">Demo data</span>}
-          {canEdit && <button className="primary" onClick={() => setEditing("new")}><Plus size={17} /> New issuance</button>}
+          {canEdit && <button className="primary" onClick={() => { setRecovery(null); setEditing("new"); }}><Plus size={17} /> New issuance</button>}
         </div>
       </header>
       {error && <div className="alert"><span>{error}</span><button onClick={() => setError("")}><X size={16} /></button></div>}
@@ -188,13 +197,17 @@ export default function App({ identity }: { identity: Identity }) {
         ? <Dashboard issuances={issuances} mineCount={issuances.filter(mine).length} open={(id) => setSelectedId(id)} openType={openType} />
         : view === "types"
           ? <TypeDirectory types={knownTypes} issuances={issuances} open={openType} />
-          : <>{view === "type" && selectedType && <TypePageHeader type={selectedType} issuances={issuances.filter((item) => item.issuance_type === selectedType)} back={() => navigate("types")} />}<Registry title={view === "mine" ? "My issuance register" : view === "type" ? `Approved ${selectedType} Applications` : "Issuance register"} items={filtered} total={viewTotal} loading={loading} query={query} setQuery={setQuery} types={types} typeFilter={typeFilter} setTypeFilter={setTypeFilter} years={years} yearFilter={yearFilter} setYearFilter={setYearFilter} processors={processors} processorFilter={processorFilter} setProcessorFilter={setProcessorFilter} open={(id) => setSelectedId(id)} hideTypeFilter={view === "type"} /></>}
+          : <>{view === "type" && selectedType && <TypePageHeader type={selectedType} issuances={issuances.filter((item) => item.issuance_type === selectedType)} back={() => navigate("types")} />}<Registry title={view === "archived" ? "Archived issuance register" : view === "mine" ? "My issuance register" : view === "type" ? `Approved ${selectedType} Applications` : "Issuance register"} items={filtered} total={viewTotal} loading={loading} query={query} setQuery={setQuery} types={types} typeFilter={typeFilter} setTypeFilter={setTypeFilter} years={years} yearFilter={yearFilter} setYearFilter={setYearFilter} processors={processors} processorFilter={processorFilter} setProcessorFilter={setProcessorFilter} open={(id) => setSelectedId(id)} hideTypeFilter={view === "type"} /></>}
     </main>
-    {selected && <DetailDrawer item={selected} profile={profile} canEdit={canEdit} close={() => setSelectedId(null)} edit={() => setEditing(selected)} remove={async () => {
-      if (profile.role !== "admin" || !window.confirm(`Delete ${selected.reference_number}? This cannot be undone.`)) return;
-      try { await deleteIssuance(selected.id); setSelectedId(null); } catch (reason) { setError(reason instanceof Error ? reason.message : "Could not delete the record."); }
+    {selected && <DetailDrawer key={selected.id} item={selected} profile={profile} canEdit={canEdit && !selected.archived}
+      close={() => setSelectedId(null)} edit={() => { setRecovery(null); setEditing(selected); }}
+      remove={() => setRecordAction(selected)} recover={(payload) => { setRecovery(payload); setEditing(selected); }} />}
+    {recordAction && <ArchiveDialog item={recordAction} close={() => setRecordAction(null)} save={async (reason) => {
+      if (recordAction.archived) await restoreIssuance(recordAction, profile, reason);
+      else await archiveIssuance(recordAction, profile, reason);
+      setRecordAction(null); setSelectedId(null);
     }} />}
-    {editing && <IssuanceForm current={editing === "new" ? null : editing} initialType={editing === "new" && view === "type" ? selectedType : ""} issuances={issuances} users={users} profile={profile} close={() => setEditing(null)} saved={(id) => { setEditing(null); setSelectedId(id); }} fail={setError} />}
+    {editing && <IssuanceForm current={editing === "new" ? null : editing} recovery={recovery} initialType={editing === "new" && view === "type" ? selectedType : ""} issuances={allRecords} users={users} profile={profile} close={() => { setEditing(null); setRecovery(null); }} saved={(id) => { setEditing(null); setRecovery(null); setSelectedId(id); }} />}
   </div>;
 }
 
@@ -309,12 +322,16 @@ function Registry(props: RegistryProps) {
 
 // The drawer exposes normalized fields first and then any worksheet-specific
 // values retained in details, avoiding duplicate display of imported columns.
-function DetailDrawer({ item, profile, canEdit, close, edit, remove }: { item: Issuance; profile: Profile; canEdit: boolean; close: () => void; edit: () => void; remove: () => void }) {
+function DetailDrawer({ item, profile, canEdit, close, edit, remove, recover }: { item: Issuance; profile: Profile; canEdit: boolean; close: () => void; edit: () => void; remove: () => void; recover: (payload: IssuanceInput) => void }) {
+  const [tab, setTab] = useState<"details" | "history">("details");
   const turnaround = daysBetween(item.date_filed, item.date_issued);
   const extraDetails = Object.entries(item.details).filter(([key]) => !["Date Filed", "Date Issued", "Processor", "Project Name", "ProjectName", "Location", "Developer", "Owner"].includes(key));
   return <div className="drawer-layer"><button className="drawer-scrim" aria-label="Close details" onClick={close} /><aside className="detail-drawer">
     <div className="drawer-head"><div><span className="eyebrow">Issuance record</span><h2>{item.reference_number}</h2></div><button className="icon-button" onClick={close}><X /></button></div>
-    <div className="drawer-actions">{canEdit && <button className="primary" onClick={edit}><Pencil size={15} /> Edit record</button>}{profile.role === "admin" && <button className="danger-button" onClick={remove}><Trash2 size={15} /> Delete</button>}</div>
+    <div className="drawer-actions">{canEdit && <button className="primary" onClick={edit}><Pencil size={15} /> Edit record</button>}{profile.role === "admin" && <button className="danger-button" onClick={remove}><Archive size={15} /> {item.archived ? "Restore record" : "Archive record"}</button>}</div>
+    {!publicDataMode && <div className="record-tabs" role="tablist" aria-label="Record information"><button role="tab" aria-selected={tab === "details"} onClick={() => setTab("details")}>Details</button><button role="tab" aria-selected={tab === "history"} onClick={() => setTab("history")}>History</button></div>}
+    {item.archived && <p className="archive-notice">Archived record · Reference number remains reserved.</p>}
+    {tab === "history" ? <HistoryPanel item={item} profile={profile} recover={recover} /> : <>
     <div className="issuance-hero"><span>{item.issuance_type}</span><h3>{item.project_name}</h3><p><MapPin size={14} /> {item.location || "Location not recorded"}</p></div>
     <div className="date-strip"><div><CalendarDays /><span>Date filed<strong>{formatDate(item.date_filed)}</strong></span></div><ChevronRight /><div><CheckCircle2 /><span>Date issued<strong>{formatDate(item.date_issued)}</strong></span></div><div className="turnaround"><strong>{turnaround ?? "—"}</strong><span>days</span></div></div>
     {item.issuance_type === "Temporary License to Sell" && <section className="drawer-section"><h3>License validity</h3><Info icon={<Clock3 />} label="TLS expiry date" value={formatDate(item.expiry_date)} /></section>}
@@ -323,6 +340,7 @@ function DetailDrawer({ item, profile, canEdit, close, edit, remove }: { item: I
     {item.remarks && <section className="drawer-section"><h3>Remarks</h3><p className="remarks-box">{item.remarks}</p></section>}
     {extraDetails.length > 0 && <section className="drawer-section"><h3>Source details</h3><dl className="source-details">{extraDetails.map(([label, value]) => <div key={label}><dt>{label}</dt><dd>{value}</dd></div>)}</dl></section>}
     <div className="record-foot"><span>Source: {item.source_sheet}{item.source_row ? ` · Row ${item.source_row}` : ""}</span>{item.updated_by && <span>Last updated by {item.updated_by}</span>}</div>
+    </>}
   </aside></div>;
 }
 function Info({ icon, label, value }: { icon: React.ReactNode; label: string; value: string }) {
@@ -331,18 +349,21 @@ function Info({ icon, label, value }: { icon: React.ReactNode; label: string; va
 
 // One form handles every issuance type. REMC validation and the CR column layout
 // are selected from issuance_type while shared save logic stays centralized.
-function IssuanceForm({ current, initialType, issuances, users, profile, close, saved, fail }: { current: Issuance | null; initialType: string; issuances: Issuance[]; users: Profile[]; profile: Profile; close: () => void; saved: (id: string) => void; fail: (message: string) => void }) {
-  const [form, setForm] = useState<IssuanceInput>(current ? {
+function IssuanceForm({ current, recovery, initialType, issuances, users, profile, close, saved }: { current: Issuance | null; recovery: IssuanceInput | null; initialType: string; issuances: Issuance[]; users: Profile[]; profile: Profile; close: () => void; saved: (id: string) => void }) {
+  const [form, setForm] = useState<IssuanceInput>(recovery || (current ? {
     reference_number: current.reference_number, issuance_type: current.issuance_type, source_sheet: current.source_sheet,
     source_row: current.source_row, date_filed: isIsoDate(current.date_filed) ? current.date_filed : "", date_issued: isIsoDate(current.date_issued) ? current.date_issued : "",
     expiry_date: isIsoDate(current.expiry_date) ? current.expiry_date : "",
     project_name: current.project_name, location: current.location, applicant: current.applicant, developer: current.developer,
     owner: current.owner, processor: current.processor, or_number: current.or_number, remarks: current.remarks,
     assigned_to: current.assigned_to, details: current.details,
-  } : emptyRecord(initialType));
+  } : emptyRecord(initialType)));
+  const [changeReason, setChangeReason] = useState("");
+  const [formError, setFormError] = useState("");
+  const fail = setFormError;
   const [saving, setSaving] = useState(false);
-  const [escrowTotal, setEscrowTotal] = useState(() => pesosInput(current?.escrow_total_centavos));
-  const [escrowPaid, setEscrowPaid] = useState(() => pesosInput(current?.escrow_paid_centavos));
+  const [escrowTotal, setEscrowTotal] = useState(() => pesosInput(recovery ? recovery.escrow_total_centavos : current?.escrow_total_centavos));
+  const [escrowPaid, setEscrowPaid] = useState(() => pesosInput(recovery ? recovery.escrow_paid_centavos : current?.escrow_paid_centavos));
   const set = (field: keyof IssuanceInput, value: string) => setForm((previous) => ({ ...previous, [field]: value }));
   const setDetail = (field: string, value: string) => setForm((previous) => ({ ...previous, details: { ...previous.details, [field]: value } }));
   const isRemc = form.issuance_type === "REMC";
@@ -393,13 +414,13 @@ function IssuanceForm({ current, initialType, issuances, users, profile, close, 
     if (clsError) { fail(clsError); return; }
     setSaving(true);
     try {
-      if (current) { await updateIssuance(current.id, payload, profile); saved(current.id); }
+      if (current) { await updateIssuance(current.id, payload, profile, current.version || 0, changeReason, recovery ? "revert" : "update"); saved(current.id); }
       else { saved(await createIssuance(payload, profile)); }
-    } catch (reason) { fail(reason instanceof Error ? reason.message : "Could not save the issuance."); setSaving(false); }
+    } catch (reason) { setFormError(reason instanceof Error ? reason.message : "Could not save the issuance."); setSaving(false); }
   };
   return <div className="modal-layer"><button className="modal-scrim" aria-label="Close form" onClick={close} /><div className="modal">
     <div className="modal-head"><div><span className="eyebrow">{current ? "Update registry entry" : "Add to registry"}</span><h2>{isCertificateOfRegistration ? `${current ? "Edit" : "New"} Certificate of Registration` : current ? "Edit issuance" : "New issuance"}</h2></div><button className="icon-button" onClick={close}><X /></button></div>
-    <form onSubmit={submit}><div className="form-grid">
+    <form onSubmit={submit}>{recovery && <p className="archive-notice">Review the recovered values below. Saving creates a new history entry.</p>}{formError && <p className="login-error" role="alert">{formError}</p>}<div className="form-grid">
       <label className="wide">Issuance type<select required value={form.issuance_type} onChange={(event) => set("issuance_type", event.target.value)}>{issuanceTypes.map((type) => <option key={type}>{type}</option>)}</select></label>
       {isCertificateOfRegistration ? <CertificateRegistrationFields form={form} set={set} setDetail={setDetail} /> : <>
       <label>{isRemc ? "Decision number" : isAdvertisementApproval ? "Advertisement approval number" : "Reference / decision no."}<input required value={form.reference_number} onChange={(event) => set("reference_number", event.target.value)} onBlur={() => isRemc && set("reference_number", normalizeRemcDecisionNumber(form.reference_number))} pattern={isRemc ? "REMC-[0-9]{4}-[0-9]+[A-Z]?" : undefined} title={isRemc ? "Use REMC-YYYY-NUMBER, with an optional letter suffix." : undefined} placeholder={isRemc ? remcDecisionNumberPlaceholder : isAdvertisementApproval ? advertisementApprovalPlaceholder : undefined} />{isRemc ? <small className="field-help">Suggested next: {remcDecisionNumberPlaceholder}. Confirm before saving.</small> : isAdvertisementApproval ? <small className="field-help">Suggested next: {advertisementApprovalPlaceholder}. Confirm before saving.</small> : null}</label>
@@ -423,6 +444,7 @@ function IssuanceForm({ current, initialType, issuances, users, profile, close, 
       <label>Assign to user<select value={form.assigned_to} onChange={(event) => set("assigned_to", event.target.value)}><option value="">No direct assignment</option>{users.map((user) => <option key={user.id} value={user.id}>{user.name}{user.processor_code ? ` (${user.processor_code})` : ""}</option>)}</select></label>
       <label className="wide">Remarks<textarea rows={4} value={form.remarks} onChange={(event) => set("remarks", event.target.value)} /></label>
       </>}
+      {current && <label className="wide">Reason for {recovery ? "recovery" : "change"}<textarea required maxLength={1000} rows={2} value={changeReason} onChange={(event) => setChangeReason(event.target.value)} /></label>}
     </div><div className="form-actions"><button type="button" className="secondary" onClick={close}>Cancel</button><button className="primary" disabled={saving}>{saving ? "Saving…" : current ? "Save changes" : "Add issuance"}</button></div></form>
   </div></div>;
 }

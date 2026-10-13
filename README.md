@@ -13,6 +13,8 @@ receipt, signature, and remarks fields removed.
 - Searchable newest-first registry with type, year, and processor filters
 - Public read-only registry with surname-only personal names
 - Optional authenticated "My issuances", editing, and assignment workflows
+- Immutable staff record history, administrator archive/restore, and selected-field recovery
+- Version checks that prevent overwriting another staff member's changes
 - Case-insensitive duplicate Reference Number prevention for new and changed records
 - Email/password authentication and role-based access in Firestore mode
 - Repeatable private-to-public sanitization and Firestore migration scripts
@@ -106,8 +108,11 @@ $env:FIREBASE_IMPORT_PASSWORD="..."
 npm run import
 ```
 
-Deterministic document IDs make the migration safe to rerun. Environment values
-are never written to files.
+Deterministic document IDs make the migration safe to rerun: existing records are
+skipped, preserving staff edits and history. New records receive a creation
+history entry and a reserved reference number. Duplicate source numbers must be
+reconciled before importing into a new database. Environment values are never
+written to files.
 
 ## 4. Deploy with GitHub Pages
 
@@ -174,3 +179,63 @@ confirmed: `REMC-2025-152`, `REMC-2025-158`, and `2026/06-15`.
 
 The original workbook and full normalized dataset are ignored by Git. Only the
 surname-only, redacted `issuances.public.json` snapshot is published.
+
+## Record history and recovery (staff portal)
+
+Open a record and select **History** to see the action, Philippine timestamp,
+staff name, reason, and changed values. Each write saves a complete before/after
+snapshot atomically with the record, authenticated staff UID, and incremented
+version. Rules reject missing, forged, modified, or deleted history entries.
+Existing records start with their exact pre-change baseline on their first
+tracked change; earlier edits cannot be reconstructed. History is available to
+active staff viewers, processors, and administrators, and is never published
+in the public snapshot.
+
+Processors and administrators can edit active records with a reason. Only
+administrators can archive, restore, or recover earlier values. **Archive record**
+replaces permanent deletion. Archived records leave active lists, dashboard
+counts, and exports, and remain in the administrator's **Archived records**
+register. Their reference numbers remain reserved. The three inherited shared
+numbers listed above are permanently blocked for new or changed references;
+both original entries remain editable, archivable, and restorable with their
+unchanged numbers.
+
+To recover an earlier edit, choose a version (or its initial baseline) in
+History, select the fields to recover, and review the complete record in the
+form. Enter a recovery reason and save. Validation and reference reservations
+still apply, and recovery creates a new history entry. Restore an archived
+record before recovering values. Record versions are checked inside the save
+transaction; a stale form must be closed and reopened against the latest record.
+
+The sanitizer excludes archived records and explicitly allows public fields,
+removing staff and history metadata. Publishing remains a separate snapshot
+process; staff archive/restore operations do not update an already published
+public snapshot automatically. Supply current private data when republishing.
+The spreadsheet importer skips existing records rather than overwriting them.
+
+### Deployment and verification
+
+Deploy the updated `firestore.rules` together with this staff portal release:
+
+```powershell
+npm run firebase -- deploy --only firestore:rules
+```
+
+Rules must be deployed before staff use this release. Older open staff tabs and
+older importer versions cannot save under the new rules; reload the staff portal
+after deployment. No live-data migration or index change is required. History
+starts lazily on each legacy record's next change. GitHub Pages does not deploy
+Firestore rules. This repository's PR workflow checks both builds and runs the
+rules against an isolated emulator; it does not deploy the rules.
+
+Run `npm test` for data, escrow, history, recovery and redaction tests. With Java
+21+ installed, run actual Firestore permission and concurrency tests locally:
+
+```powershell
+npm run firebase -- emulators:exec --only firestore --project demo-issuance-history "npm run test:rules"
+```
+
+The rules tests clear only the `demo-issuance-history` project on a loopback
+emulator. No production credentials are needed. Database administrators using
+privileged server credentials can bypass client rules, so independent database
+backups remain necessary for disaster recovery.

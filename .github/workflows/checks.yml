@@ -1,0 +1,34 @@
+name: Check application and Firestore rules
+
+on:
+  pull_request:
+    branches: ["main"]
+
+permissions:
+  contents: read
+
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+      - run: npm ci
+      - run: npm test
+      - name: Check actual Firestore permissions in an isolated emulator
+        run: npm run firebase -- emulators:exec --only firestore --project demo-issuance-history "npm run test:rules"
+      - name: Build public registry
+        run: npm run build
+        env:
+          VITE_PUBLIC_DATA_MODE: "true"
+      - name: Build staff portal
+        run: npm run build -- --outDir dist/staff --emptyOutDir false
+        env:
+          VITE_PUBLIC_DATA_MODE: "false"

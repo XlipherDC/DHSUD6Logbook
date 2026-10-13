@@ -1,0 +1,77 @@
+import assert from "node:assert/strict";
+import { loadAppModule } from "./load-app-module.mjs";
+import { sanitizeRecord, containsHiddenPublicFields } from "./public-data-utils.mjs";
+import { execFileSync } from "node:child_process";
+import { mkdtemp, writeFile, readFile, unlink, rmdir } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+
+const helpers = loadAppModule("recordHistory");
+const api = loadAppModule("data", { "./firebase": { demoMode: true, publicDataMode: false, db: null } });
+const admin = { id: "admin", name: "Administrator", active: true, role: "admin" };
+const processor = { ...admin, id: "processor", name: "Processor", role: "processor" };
+const viewer = { ...admin, role: "viewer" };
+const payload = { reference_number: "HISTORY-001", issuance_type: "Development Permit", source_sheet: "Manual", source_row: null,
+  date_filed: "2026-10-01", date_issued: "2026-10-13", expiry_date: "", project_name: "History test", location: "Test City",
+  applicant: "", developer: "", owner: "", processor: "DM", or_number: "", remarks: "", assigned_to: "", details: {} };
+let records = [];
+const unsubscribe = api.subscribeIssuances((items) => { records = items; }, assert.fail);
+const id = await api.createIssuance(payload, admin);
+let entries = [];
+const unsubscribeHistory = api.subscribeHistory(id, (items) => { entries = items; }, assert.fail);
+assert.equal(entries.length, 1);
+assert.equal(entries[0].action, "create");
+assert.equal(entries[0].before, null);
+assert.equal(entries[0].actor_id, admin.id);
+await api.updateIssuance(id, { ...payload, project_name: "Edited" }, processor, 1, "Correction");
+assert.equal(entries[0].before.project_name, "History test");
+assert.equal(entries[0].after.project_name, "Edited");
+assert.equal(entries[0].actor_id, processor.id);
+assert.deepEqual(helpers.changedFields(entries[0].before, entries[0].after), ["project_name"]);
+await assert.rejects(api.updateIssuance(id, payload, admin, 1, "Stale form"), /Another staff member/);
+assert.equal(entries.length, 2);
+await assert.rejects(api.updateIssuance(id, payload, admin, 2, "  "), /reason/);
+await assert.rejects(api.updateIssuance(id, payload, viewer, 2, "Edit"), /Editing access/);
+await assert.rejects(api.archiveIssuance(records.find((item) => item.id === id), processor, "Archive"), /Administrator/);
+await api.archiveIssuance(records.find((item) => item.id === id), admin, "Entered in error");
+assert.equal(records.find((item) => item.id === id).archived, true);
+assert.equal(entries[0].action, "archive");
+await assert.rejects(api.createIssuance(payload, admin), /already exists/);
+await assert.rejects(api.updateIssuance(id, payload, admin, 3, "Edit archived"), /Restore this archived/);
+await api.restoreIssuance(records.find((item) => item.id === id), admin, "Verified correct");
+assert.equal(entries[0].action, "restore");
+await assert.rejects(api.updateIssuance(id, payload, processor, 4, "Recover", "revert"), /Administrator/);
+await api.updateIssuance(id, helpers.editableSnapshot(entries.at(-1).after), admin, 4, "Recover original project name", "revert");
+assert.equal(entries[0].action, "revert");
+assert.equal(entries[0].after.project_name, "History test");
+assert.equal(entries.length, 5);
+assert.equal(entries.at(-1).after.project_name, "History test");
+const recovered = helpers.editableSnapshot({ ...payload, id: "forged", version: 100, archived: true, updated_by: "forged", history_id: "forged" });
+assert.deepEqual(recovered, payload);
+assert.match(helpers.validateRecoveryInput({ ...payload, date_filed: "2027-01-01" }), /Date filed/);
+assert.match(helpers.validateRecoveryInput({ ...payload, date_issued: "2026-02-30" }), /valid issuance/);
+assert.match(helpers.validateRecoveryInput({ ...payload, issuance_type: "Temporary License to Sell", expiry_date: "2026-10-14" }), /calendar year/);
+assert.match(helpers.validateRecoveryInput({ ...payload, issuance_type: "Conditional License to Sell (CLS)" }), /CLS/);
+const publicRecord = sanitizeRecord({ ...payload, updated_by: "Private Name", actor_id: "uid", history: entries, before: payload, after: payload, version: 5, archived: true, history_id: "private" });
+assert.equal(containsHiddenPublicFields(publicRecord), false);
+assert.equal(publicRecord.history, undefined);
+assert.equal(publicRecord.version, undefined);
+const temporary = await mkdtemp(path.join(tmpdir(), "issuance-public-test-"));
+const sourcePath = path.join(temporary, "private.json");
+const outputPath = path.join(temporary, "public.json");
+try {
+  await writeFile(sourcePath, JSON.stringify([{ ...payload, id: "active", history: entries, updated_by: "Private Name" }, { ...payload, id: "archived", archived: true }]));
+  execFileSync(process.execPath, [fileURLToPath(new URL("./sanitize-public-data.mjs", import.meta.url)), sourcePath, outputPath]);
+  const published = JSON.parse(await readFile(outputPath, "utf8"));
+  assert.equal(published.length, 1);
+  assert.equal(published[0].id, "active");
+  assert.equal(containsHiddenPublicFields(published[0]), false);
+} finally {
+  await unlink(sourcePath);
+  await unlink(outputPath).catch(() => {});
+  await rmdir(temporary);
+}
+await assert.rejects(api.createIssuance({ ...payload, reference_number: "2026/06-15" }, admin), /already exists/);
+unsubscribe(); unsubscribeHistory();
+console.log("Validated history snapshots, recovery, reasons, permissions, stale edits, archive/restore, reserved numbers and public redactions.");

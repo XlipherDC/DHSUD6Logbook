@@ -41,7 +41,8 @@ export function sanitizeRecord(record) {
     details[key] = partyKeyPattern.test(key) ? sanitizeParty(value) : value;
   }
   return {
-    ...record,
+    ...Object.fromEntries(["id", "reference_number", "issuance_type", "source_sheet", "source_row", "date_filed", "date_issued", "expiry_date", "escrow_total_centavos", "escrow_paid_centavos", "project_name", "location", "processor", "created_at", "updated_at"].filter((field) => record[field] !== undefined).map((field) => [field, record[field]])),
+    updated_by: "",
     applicant: sanitizeParty(record.applicant),
     owner: sanitizeParty(record.owner),
     developer: sanitizeParty(record.developer),
@@ -53,6 +54,7 @@ export function sanitizeRecord(record) {
 }
 
 export function containsHiddenPublicFields(record) {
-  return Boolean(record.or_number || record.remarks)
+  return Boolean(record.or_number || record.remarks || record.updated_by || record.assigned_to)
+    || ["history", "before", "after", "actor_id", "actor_name", "history_id", "version", "archived"].some((field) => field in record)
     || Object.keys(record.details || {}).some((key) => hiddenDetailPattern.test(key));
 }

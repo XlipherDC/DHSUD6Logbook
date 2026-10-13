@@ -1,9 +1,10 @@
 import {
-  collection, doc, onSnapshot, runTransaction, serverTimestamp,
+  collection, doc, getDocFromServer, onSnapshot, runTransaction, serverTimestamp,
 } from "firebase/firestore";
 import { db, demoMode, publicDataMode } from "./firebase";
 import publicSeed from "./seed/issuances.public.json";
 import { validateConditionalLicense } from "./conditionalLicense";
+import { assertCurrentVersion, editableSnapshot, validateRecoveryInput } from "./recordHistory";
 
 export type Role = "admin" | "processor" | "viewer";
 export type Identity = { uid: string; email: string; displayName: string };
@@ -39,14 +40,23 @@ export type Issuance = {
   created_at: string;
   updated_at: string;
   updated_by: string;
+  version?: number;
+  archived?: boolean;
 };
 
-export type IssuanceInput = Omit<Issuance, "id" | "created_at" | "updated_at" | "updated_by">;
+export type IssuanceInput = Omit<Issuance, "id" | "created_at" | "updated_at" | "updated_by" | "version" | "archived">;
+export type HistoryAction = "create" | "update" | "archive" | "restore" | "revert";
+export type HistoryEntry = {
+  id: string; action: HistoryAction; actor_id: string; actor_name: string;
+  at: string; reason: string; version: number;
+  before: Record<string, unknown> | null; after: Record<string, unknown>;
+};
 
 // Reference numbers are compared case-insensitively with collapsed whitespace.
 // The encoded value is safe to use as a Firestore reservation document ID.
 export const canonicalReferenceNumber = (value: string) => value.trim().replace(/\s+/g, " ").toUpperCase();
 const referenceKey = (value: string) => encodeURIComponent(canonicalReferenceNumber(value)).replace(/\./g, "%2E");
+const protectedLegacyReferences = new Set(["REMC-2025-152", "REMC-2025-158", "2026/06-15"]);
 const duplicateReferenceError = (value: string) => new Error(`Reference Number "${value}" already exists. Use a unique Reference Number.`);
 const newestFirst = (items: Issuance[]) => [...items].sort((left, right) =>
   right.date_issued.localeCompare(left.date_issued)
@@ -58,7 +68,7 @@ const dateValue = (value: unknown) => {
   if (value && typeof value === "object" && "toDate" in value) {
     return (value as { toDate: () => Date }).toDate().toISOString();
   }
-  return typeof value === "string" ? value : now();
+  return typeof value === "string" ? value : "";
 };
 const textValue = (value: unknown) => typeof value === "string" ? value : "";
 
@@ -88,6 +98,8 @@ const mapIssuance = (id: string, value: Record<string, unknown>): Issuance => ({
   created_at: dateValue(value.created_at),
   updated_at: dateValue(value.updated_at),
   updated_by: textValue(value.updated_by),
+  version: typeof value.version === "number" ? value.version : 0,
+  archived: value.archived === true,
 });
 
 const demoSeed: Issuance[] = [
@@ -184,114 +196,108 @@ export function subscribeUsers(next: (profiles: Profile[]) => void, fail: (error
   })).filter((item) => item.active).sort((a, b) => a.name.localeCompare(b.name))), fail);
 }
 
-export async function createIssuance(payload: IssuanceInput, actor: Profile) {
-  const clsError = validateConditionalLicense(payload);
-  if (clsError) throw new Error(clsError);
+
+const demoHistory = new Map<string, HistoryEntry[]>();
+const historyListeners = new Map<string, Set<(entries: HistoryEntry[]) => void>>();
+export function subscribeHistory(id: string, next: (entries: HistoryEntry[]) => void, fail: (error: Error) => void) {
+  if (publicDataMode) { next([]); return () => undefined; }
   if (demoMode) {
-    if (demoRecords.some((item) => canonicalReferenceNumber(item.reference_number) === canonicalReferenceNumber(payload.reference_number))) {
-      throw duplicateReferenceError(payload.reference_number);
-    }
-    const created: Issuance = { ...payload, id: `demo-${Date.now()}`, created_at: now(), updated_at: now(), updated_by: actor.name };
-    demoRecords = [created, ...demoRecords];
-    emitDemo();
-    return created.id;
+    const listeners = historyListeners.get(id) || new Set();
+    historyListeners.set(id, listeners); listeners.add(next); next(demoHistory.get(id) || []);
+    return () => { listeners.delete(next); };
   }
-  const database = store();
-  const issuanceReference = doc(collection(database, "issuances"));
-  const key = referenceKey(payload.reference_number);
-  const reservationReference = doc(database, "issuance_reference_numbers", key);
-  // Reserve the canonical number and create the issuance atomically. Concurrent
-  // attempts for the same number cannot both observe an empty reservation.
-  await runTransaction(database, async (transaction) => {
-    const reservation = await transaction.get(reservationReference);
-    if (reservation.exists()) throw duplicateReferenceError(payload.reference_number);
-    transaction.set(issuanceReference, {
-      ...payload,
-      reference_key: key,
-      created_at: serverTimestamp(),
-      updated_at: serverTimestamp(),
-      updated_by: actor.name,
-    });
-    transaction.set(reservationReference, {
-      issuance_id: issuanceReference.id,
-      reference_number: payload.reference_number,
-      updated_at: serverTimestamp(),
-    });
-  });
-  return issuanceReference.id;
+  return onSnapshot(collection(store(), "issuances", id, "history"), (snapshot) => {
+    next(snapshot.docs.map((entry) => ({ ...entry.data(), id: entry.id, at: dateValue(entry.data().at) } as HistoryEntry))
+      .sort((a, b) => b.version - a.version));
+  }, fail);
 }
 
-export async function updateIssuance(id: string, payload: IssuanceInput, actor: Profile) {
-  const clsError = validateConditionalLicense(payload);
-  if (clsError) throw new Error(clsError);
+type Mutation = { action: HistoryAction; reason: string; expectedVersion: number; payload?: IssuanceInput };
+const ensureStaffWrite = (actor: Profile, action: HistoryAction, reason: string) => {
+  if (publicDataMode || !actor.active || !["admin", "processor"].includes(actor.role)) throw new Error("Editing access is required.");
+  if (["archive", "restore", "revert"].includes(action) && actor.role !== "admin") throw new Error("Administrator access is required.");
+  if (action !== "create" && !reason.trim()) throw new Error("Enter a reason for this change.");
+  if (reason.length > 1000) throw new Error("Use a reason of 1,000 characters or fewer.");
+};
+
+async function saveRecord(id: string | null, operation: Mutation, actor: Profile) {
+  const { action, reason, expectedVersion } = operation;
+  ensureStaffWrite(actor, action, reason);
+  const payload = operation.payload ? editableSnapshot(operation.payload as unknown as Record<string, unknown>) : undefined;
+  if (payload) {
+    const error = action === "revert" ? validateRecoveryInput(payload) : validateConditionalLicense(payload);
+    if (error) throw new Error(error);
+  }
+  // Never send undefined optional escrow values to Firestore.
+  const cleanPayload = payload ? JSON.parse(JSON.stringify(payload)) as IssuanceInput : undefined;
+  const prepare = (before: Record<string, unknown> | null, at: unknown, historyId: string) => {
+    if (action !== "create" && !before) throw new Error("This issuance no longer exists.");
+    assertCurrentVersion(Number(before?.version || 0), expectedVersion);
+    if (before?.archived === true && action !== "restore") throw new Error("Restore this archived record before editing it.");
+    if (action === "restore" && before?.archived !== true) throw new Error("This record is already active.");
+    if (cleanPayload && protectedLegacyReferences.has(canonicalReferenceNumber(cleanPayload.reference_number)) && (!before || before.reference_number !== cleanPayload.reference_number)) throw duplicateReferenceError(cleanPayload.reference_number);
+    const after = { ...before, ...cleanPayload, archived: action === "archive", version: expectedVersion + 1,
+      history_id: historyId, updated_at: at, updated_by: actor.name,
+      ...(before ? {} : { created_at: at }) } as Record<string, unknown> & IssuanceInput & { history_id: string; version: number };
+    const entry = { action, reason: reason.trim(), actor_id: actor.id, actor_name: actor.name,
+      at, version: expectedVersion + 1, before, after };
+    return { after, entry };
+  };
   if (demoMode) {
-    if (demoRecords.some((item) => item.id !== id && canonicalReferenceNumber(item.reference_number) === canonicalReferenceNumber(payload.reference_number))) {
-      throw duplicateReferenceError(payload.reference_number);
-    }
-    demoRecords = demoRecords.map((item) => item.id === id ? { ...item, ...payload, updated_at: now(), updated_by: actor.name } : item);
-    emitDemo();
-    return;
+    const recordId = id || crypto.randomUUID();
+    const current = demoRecords.find((item) => item.id === recordId);
+    const before = current ? JSON.parse(JSON.stringify(current)) : null;
+    if (before) delete before.id;
+    const { after, entry } = prepare(before, now(), crypto.randomUUID());
+    if (demoRecords.some((item) => item.id !== recordId && canonicalReferenceNumber(item.reference_number) === canonicalReferenceNumber(after.reference_number)
+      && (!current || current.reference_number !== after.reference_number))) throw duplicateReferenceError(after.reference_number);
+    demoRecords = [...demoRecords.filter((item) => item.id !== recordId), mapIssuance(recordId, after)];
+    const entries = [{ ...entry, id: after.history_id } as HistoryEntry, ...(demoHistory.get(recordId) || [])];
+    demoHistory.set(recordId, entries); emitDemo(); historyListeners.get(recordId)?.forEach((listener) => listener(entries));
+    return recordId;
   }
   const database = store();
-  const issuanceReference = doc(database, "issuances", id);
-  await runTransaction(database, async (transaction) => {
-    const existing = await transaction.get(issuanceReference);
-    if (!existing.exists()) throw new Error("This issuance no longer exists.");
-
-    const previousNumber = textValue(existing.data().reference_number);
-    const previousKey = textValue(existing.data().reference_key);
-    // Imported legacy records predate reservation keys. They may still be
-    // edited while their unchanged reference numbers are grandfathered.
-    if (!previousKey && previousNumber === payload.reference_number) {
-      transaction.update(issuanceReference, { ...payload, updated_at: serverTimestamp(), updated_by: actor.name });
-      return;
-    }
-
-    // A changed reference number acquires its new reservation before the old
-    // one is released, all within the same transaction.
-    const nextKey = referenceKey(payload.reference_number);
-    const nextReservationReference = doc(database, "issuance_reference_numbers", nextKey);
-    const nextReservation = await transaction.get(nextReservationReference);
-    if (nextReservation.exists() && textValue(nextReservation.data().issuance_id) !== id) {
-      throw duplicateReferenceError(payload.reference_number);
-    }
-
-    transaction.update(issuanceReference, {
-      ...payload,
-      reference_key: nextKey,
-      updated_at: serverTimestamp(),
-      updated_by: actor.name,
-    });
-    transaction.set(nextReservationReference, {
-      issuance_id: id,
-      reference_number: payload.reference_number,
-      updated_at: serverTimestamp(),
-    });
-    if (previousKey && previousKey !== nextKey) {
-      transaction.delete(doc(database, "issuance_reference_numbers", previousKey));
-    }
-  });
-}
-
-export async function deleteIssuance(id: string) {
-  if (demoMode) {
-    demoRecords = demoRecords.filter((item) => item.id !== id);
-    emitDemo();
-    return;
-  }
-  const database = store();
-  const issuanceReference = doc(database, "issuances", id);
-  // Delete the linked reservation with the issuance so the number can be
-  // reused intentionally after an administrator removes the record.
-  await runTransaction(database, async (transaction) => {
-    const existing = await transaction.get(issuanceReference);
-    if (!existing.exists()) return;
-    const key = textValue(existing.data().reference_key);
-    const reservationReference = key ? doc(database, "issuance_reference_numbers", key) : null;
+  const reference = id ? doc(database, "issuances", id) : doc(collection(database, "issuances"));
+  const auditReference = doc(collection(reference, "history"));
+  try { await runTransaction(database, async (transaction) => {
+    const existing = await transaction.get(reference);
+    if (!id && existing.exists()) throw new Error("Record already exists.");
+    const before = existing.exists() ? existing.data() : null;
+    const { after, entry } = prepare(before, serverTimestamp(), auditReference.id);
+    const previousKey = textValue(before?.reference_key);
+    const previousNumber = textValue(before?.reference_number);
+    // The three inherited duplicate groups keep the legacy exception and are
+    // blocked globally for new references. Other legacy numbers acquire a
+    // reservation on first change; archiving never releases it.
+    const inheritedDuplicate = before && !previousKey && previousNumber === after.reference_number && protectedLegacyReferences.has(canonicalReferenceNumber(previousNumber));
+    const needsReservation = !inheritedDuplicate;
+    const nextKey = needsReservation ? referenceKey(after.reference_number) : "";
+    const reservationReference = nextKey ? doc(database, "issuance_reference_numbers", nextKey) : null;
     const reservation = reservationReference ? await transaction.get(reservationReference) : null;
-    transaction.delete(issuanceReference);
-    if (reservationReference && reservation?.exists() && textValue(reservation.data().issuance_id) === id) {
-      transaction.delete(reservationReference);
+    if (reservation?.exists() && textValue(reservation.data().issuance_id) !== reference.id) throw duplicateReferenceError(after.reference_number);
+    if (nextKey) { Object.assign(after, { reference_key: nextKey }); }
+    transaction.set(reference, after);
+    transaction.set(auditReference, entry);
+    if (reservationReference) transaction.set(reservationReference, { issuance_id: reference.id, reference_number: after.reference_number, updated_at: serverTimestamp() });
+    if (previousKey && previousKey !== nextKey) transaction.delete(doc(database, "issuance_reference_numbers", previousKey));
+  }); } catch (failure) {
+    // Rules can reject a racing write before the SDK retries its transaction.
+    // Translate that specific case into the same actionable conflict message.
+    if (id && failure && typeof failure === "object" && "code" in failure && failure.code === "permission-denied") {
+      let latest;
+      try { latest = await getDocFromServer(reference); } catch { throw failure; }
+      if (latest.exists()) assertCurrentVersion(Number(latest.data().version || 0), expectedVersion);
     }
-  });
+    throw failure;
+  }
+  return reference.id;
 }
+
+export const createIssuance = (payload: IssuanceInput, actor: Profile) =>
+  saveRecord(null, { action: "create", reason: "Record created", expectedVersion: 0, payload }, actor);
+export const updateIssuance = (id: string, payload: IssuanceInput, actor: Profile, expectedVersion: number, reason: string, action: "update" | "revert" = "update") =>
+  saveRecord(id, { action, reason, expectedVersion, payload }, actor);
+export const archiveIssuance = (item: Issuance, actor: Profile, reason: string) =>
+  saveRecord(item.id, { action: "archive", reason, expectedVersion: item.version || 0 }, actor);
+export const restoreIssuance = (item: Issuance, actor: Profile, reason: string) =>
+  saveRecord(item.id, { action: "restore", reason, expectedVersion: item.version || 0 }, actor);
