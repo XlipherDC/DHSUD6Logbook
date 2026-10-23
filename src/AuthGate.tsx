@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { onAuthStateChanged, signInWithEmailAndPassword, signOut } from "firebase/auth";
-import { FileCheck2, LockKeyhole, LogIn } from "lucide-react";
+import { LockKeyhole, LogIn } from "lucide-react";
+import DepartmentSeal from "./DepartmentSeal";
 import type { Identity } from "./data";
 import { auth, demoMode, firebaseConfigured, publicDataMode } from "./firebase";
 
@@ -48,7 +49,7 @@ export default function AuthGate({ children }: { children: (identity: Identity) 
       }
     };
     return <div className="auth-page"><div className="auth-card">
-      <div className="auth-mark"><FileCheck2 /></div>
+      <div className="auth-mark"><DepartmentSeal /></div>
       <span className="eyebrow">DHSUD Region VI</span>
       <h1>Issuance Tracker</h1>
       <p>Sign in with your authorized account to open the approved applications registry.</p>
@@ -66,7 +67,7 @@ export default function AuthGate({ children }: { children: (identity: Identity) 
 
 function SetupNeeded() {
   return <div className="auth-page"><div className="auth-card setup-card">
-    <div className="auth-mark"><FileCheck2 /></div>
+    <div className="auth-mark"><DepartmentSeal /></div>
     <h1>Configuration required</h1>
     <p>Add the six <code>VITE_FIREBASE_*</code> values described in the README, then rebuild. For a local read-only-style preview, set <code>VITE_DEMO_MODE=true</code>.</p>
   </div></div>;

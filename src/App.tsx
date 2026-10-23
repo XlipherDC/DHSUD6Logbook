@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import DepartmentSeal from "./DepartmentSeal";
 import {
   BarChart3, Building2, CalendarDays, CheckCircle2, ChevronRight, Clock3,
   Download, FileCheck2, Files, Layers3, LayoutDashboard, LogIn, MapPin, Menu, Pencil,
@@ -170,7 +171,7 @@ export default function App({ identity }: { identity: Identity }) {
 
   return <div className="app-shell">
     <aside className={navOpen ? "sidebar open" : "sidebar"}>
-      <div className="brand"><div className="brand-mark"><FileCheck2 /></div><div><strong>DHSUD</strong><span>Region VI · Issuance Tracker</span></div></div>
+      <div className="brand"><div className="brand-mark"><DepartmentSeal /></div><div><strong>DHSUD</strong><span>Region VI · Issuance Tracker</span></div></div>
       <nav aria-label="Main navigation">
         <button className={view === "dashboard" ? "active" : ""} onClick={() => navigate("dashboard")}><LayoutDashboard /> Dashboard</button>
         <button className={view === "all" ? "active" : ""} onClick={() => navigate("all")}><Files /> All issuances <em>{issuances.length}</em></button>
