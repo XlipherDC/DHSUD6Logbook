@@ -223,7 +223,9 @@ function Dashboard({ issuances, mineCount, open, openType }: { issuances: Issuan
   const durations = issuances.map((item) => daysBetween(item.date_filed, item.date_issued)).filter((value): value is number => value !== null);
   const average = durations.length ? Math.round(durations.reduce((sum, value) => sum + value, 0) / durations.length) : 0;
   const latestYear = issuances.map((item) => item.date_issued.slice(0, 4)).filter((value) => /^\d{4}$/.test(value)).sort().at(-1) || currentYear;
-  const byType = Object.entries(issuances.reduce<Record<string, number>>((result, item) => ({ ...result, [item.issuance_type]: (result[item.issuance_type] || 0) + 1 }), {})).sort((a, b) => b[1] - a[1]);
+  const typeCounts = Object.fromEntries(issuanceTypes.map((type) => [type, 0]));
+  for (const item of issuances) typeCounts[item.issuance_type] = (typeCounts[item.issuance_type] || 0) + 1;
+  const byType = Object.entries(typeCounts).sort((a, b) => b[1] - a[1]);
   const maxType = byType[0]?.[1] || 1;
   const recent = [...issuances].sort((a, b) => b.date_issued.localeCompare(a.date_issued)).slice(0, 6);
   return <>
@@ -239,7 +241,7 @@ function Dashboard({ issuances, mineCount, open, openType }: { issuances: Issuan
         <MonthlyIssuanceChart issuances={issuances} year={latestYear} typeOrder={issuanceTypes} />
       </article>
       <article className="panel type-panel"><PanelHead title="Issuance mix" copy="Records by approval category" />
-        <div className="type-list">{byType.slice(0, 6).map(([type, count]) => <button className="type-row" key={type} onClick={() => openType(type)}><div><span className="type-dot" style={{ backgroundColor: issuanceColor(type, issuanceTypes) }} /> <strong>{type}</strong><b>{count}</b></div><div className="type-track"><span style={{ width: `${count / maxType * 100}%`, backgroundColor: issuanceColor(type, issuanceTypes) }} /></div></button>)}</div>
+        <div className="type-list">{byType.map(([type, count]) => <button className="type-row" key={type} onClick={() => openType(type)}><div><span className="type-dot" style={{ backgroundColor: issuanceColor(type, issuanceTypes) }} /> <strong>{type}</strong><b>{count}</b></div><div className="type-track"><span style={{ width: `${count / maxType * 100}%`, backgroundColor: issuanceColor(type, issuanceTypes) }} /></div></button>)}</div>
       </article>
       <article className="panel recent-panel"><PanelHead title="Recently issued" copy="Latest approved application records" />
         <div className="recent-list">{recent.map((item) => <button key={item.id} onClick={() => open(item.id)}><span className="doc-icon"><FileCheck2 /></span><span className="recent-main"><strong>{item.project_name}</strong><small>{item.reference_number} · {item.issuance_type}</small></span><span className="recent-date">{formatDate(item.date_issued)}</span><ChevronRight /></button>)}</div>
